@@ -45,9 +45,26 @@ def process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_c
             calculate_unigram_counts(current_word, word_counts)
             calculate_unigram_counts(current_pos_tag, pos_tag_counts)
 
-def print_debug_info(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts):
+def calculate_backoff_weight(pos_pos_bigram_counts, pos_tag_counts, first_pos_tag, second_pos_tag):
+    return 0.4 # TODO: Replace with actual computed value
+
+# TODO: Vary discount in order to improve accuracy if necessary. Generally the value of discount lies between 0 and 1
+def kneser_ney(pos_pos_bigram_counts, pos_tag_counts, first_pos_tag, second_pos_tag, discount=0.5):
+    if f'{first_pos_tag}{second_pos_tag}' in pos_pos_bigram_counts:
+        return (pos_pos_bigram_counts[f'{first_pos_tag}{second_pos_tag}'] - discount) / (pos_tag_counts[f'{first_pos_tag}'])
+    else:
+        alpha = calculate_backoff_weight(pos_pos_bigram_counts, pos_tag_counts, first_pos_tag, second_pos_tag)
+        numerator = len([pos_tag for pos_tag in pos_tag_counts if f'{pos_tag}{second_pos_tag}' in pos_pos_bigram_counts])
+        denominator = sum([len([pos_tag for pos_tag in pos_tag_counts if f'{pos_tag}{second_pos_tag}' in pos_pos_bigram_counts]) for another_pos_tag in pos_tag_counts])
+        return alpha * numerator / denominator
+
+def calculate_kneser_ney_smoothed_probabilities(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts):
+    transition_probabilities = [kneser_ney(pos_pos_bigram_counts, pos_tag_counts, first_pos_tag, second_pos_tag) for first_pos_tag in pos_tag_counts for second_pos_tag in pos_tag_counts]
+    return transition_probabilities
+
+def print_debug_info(transition_probabilities):
     print('Debugging info: ')
-    print(f'pos pos bigram counts: {pos_pos_bigram_counts}\n word pos bigram counts:{word_pos_counts}\n pos_tags:{pos_tag_counts} \n word_counts:{word_counts}')
+    print(f'{transition_probabilities}')
 
 def train_model(train_file, model_file):
     # write your code here. You can add functions as well.
@@ -59,7 +76,8 @@ def train_model(train_file, model_file):
         train_data = file.read()
         lines = train_data.split('\n')
         process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts, lines)
-        print_debug_info(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts)
+        transition_probabilities = calculate_kneser_ney_smoothed_probabilities(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts)
+        print_debug_info(transition_probabilities)
 
 
 if __name__ == "__main__":
