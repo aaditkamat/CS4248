@@ -6,10 +6,48 @@ import sys
 import datetime
 
 
+def calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos_tag, current_pos_tag):
+    pos_pos_bigram = f'{previous_pos_tag}{current_pos_tag}'
+    if pos_pos_bigram in pos_pos_bigram_counts:
+        pos_pos_bigram_counts[pos_pos_bigram] += 1
+    else:
+        pos_pos_bigram_counts[pos_pos_bigram] = 1
+
+def calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag):
+    if current_word in word_pos_counts and current_pos_tag in word_pos_counts[current_word]:
+        word_pos_counts[current_word][current_pos_tag] += 1
+    elif current_word in word_pos_counts:
+        word_pos_counts[current_word][current_pos_tag] = 1
+    else:
+        word_pos_counts[current_word] = {current_pos_tag: 1}
+    
+def custom_split(tagged_word):
+    return ('/'.join(tagged_word.split('/')[0: -1]), tagged_word.split('/')[-1])
+
+def calculate_counts(pos_pos_bigram_counts, word_pos_counts, pos_tags, lines):
+    for line in lines:
+        tagged_words = line.split(' ')
+        current_word, current_pos_tag = custom_split(tagged_words[0])
+        calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag)
+        pos_tags.add(current_pos_tag)
+        for i in range(1, len(tagged_words)):
+            current_word, current_pos_tag = custom_split(tagged_words[i])
+            previous_word, previous_pos_tag = custom_split(tagged_words[i - 1])
+            calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos_tag, current_pos_tag)
+            calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag)
+            pos_tags.add(current_pos_tag)
 
 def train_model(train_file, model_file):
     # write your code here. You can add functions as well.
-    
+    with open(train_file) as file:
+        pos_pos_bigram_counts = {}
+        word_pos_counts = {}
+        pos_tags = set()
+        train_data = file.read()
+        lines = train_data.split('\n')
+        calculate_counts(pos_pos_bigram_counts, word_pos_counts, pos_tags, lines)
+        print('Debugging info: ')
+        print(f'pos pos bigram counts: {pos_pos_bigram_counts}\n word pos bigram counts:{word_pos_counts}\n pos_tags:{pos_tags}')
 
 if __name__ == "__main__":
     # make no changes here
