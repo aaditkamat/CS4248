@@ -24,7 +24,7 @@ def calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag):
 def custom_split(tagged_word):
     return ('/'.join(tagged_word.split('/')[0: -1]), tagged_word.split('/')[-1])
 
-def calculate_counts(pos_pos_bigram_counts, word_pos_counts, pos_tags, lines):
+def process_lines(pos_pos_bigram_counts, word_pos_counts, pos_tags, lines):
     for line in lines:
         tagged_words = line.split(' ')
         current_word, current_pos_tag = custom_split(tagged_words[0])
@@ -45,7 +45,7 @@ def train_model(train_file, model_file):
         pos_tags = set()
         train_data = file.read()
         lines = train_data.split('\n')
-        calculate_counts(pos_pos_bigram_counts, word_pos_counts, pos_tags, lines)
+        process_lines(pos_pos_bigram_counts, word_pos_counts, pos_tags, lines)
         print('Debugging info: ')
         print(f'pos pos bigram counts: {pos_pos_bigram_counts}\n word pos bigram counts:{word_pos_counts}\n pos_tags:{pos_tags}')
 
