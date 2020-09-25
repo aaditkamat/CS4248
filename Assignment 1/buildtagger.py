@@ -45,7 +45,7 @@ def process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_c
             calculate_unigram_counts(current_word, word_counts)
             calculate_unigram_counts(current_pos_tag, pos_tag_counts)
 
-def print_debug_info():
+def print_debug_info(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts):
     print('Debugging info: ')
     print(f'pos pos bigram counts: {pos_pos_bigram_counts}\n word pos bigram counts:{word_pos_counts}\n pos_tags:{pos_tag_counts} \n word_counts:{word_counts}')
 
@@ -59,7 +59,7 @@ def train_model(train_file, model_file):
         train_data = file.read()
         lines = train_data.split('\n')
         process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts, lines)
-        print_debug_info()
+        print_debug_info(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts)
 
 
 if __name__ == "__main__":
