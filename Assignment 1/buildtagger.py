@@ -8,25 +8,51 @@ import sys
 import datetime
 
 class HiddenMarkovModel(torch.nn.Module):
-    def __init__(self, D_in, T, H, D_out, pos_pos_bigram_counts, word_pos_counts):
+    def __init__(self, D_in, T, H, D_out, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts):
         super(HiddenMarkovModel, self).__init__()
         self.input_layer = torch.nn.Linear(D_in, H)
         self.hidden_layers = [torch.nn.Linear(H, H) for _ in range(T - 1)]
         self.output_layer = torch.nn.Linear(H, D_out)
         self.A = self.calculate_transition_probabilities(pos_pos_bigram_counts)
-        self.B = self.observation_likelihoods(word_pos_counts)
-        self.viterbi_tensor = self.viterbi(T, H)
+        self.observations = list(word_counts)[: T]
+        self.B = self.observation_likelihoods(T, word_counts, word_pos_counts)
+        self.viterbi_tensor = self.viterbi(T, H, A, B)
 
-    def calculate_transition_probabilities(self, pos_pos_bigram_counts):
-        pass
+    def calculate_transition_probabilities(self, pos_pos_bigram_counts, pos_tag_counts):
+        N = len(pos_tag_counts)
+        tags = list(pos_tag_counts.keys())
+        matrix = torch.randn([N + 1, N], dtype=torch.int32)
+        for i in range(1, N + 1):
+            for j in range(N):
+                matrix[i][j] = pos_pos_bigram_counts[tags[i]][tags[j]] / pos_tag_counts[tags[i]]
+        # Normalize the first row
+        for j in range(N):
+            matrix[0][j] = matrix[0][j] / (sum([matrix[0][i] for i in range(N)]))
+        return matrix
 
-    def observation_likelihoods(self, word_pos_counts):
-        pass
 
-    def viterbi(self, T, H):
-        viterbi_tensor = torch.zeros([T + 2, H], dtype=torch.int32)
-        pass
+    def observation_likelihoods(self, T, word_counts, word_pos_counts, pos_tag_counts):
+        N = len(pos_tag_counts)
+        tags = list(pos_tag_counts.keys())
+        matrix = torch.randn([N, T], dtype=torch.int32)
+        for i in range(N):
+            for j in range(T):
+                matrix[i][j] = word_pos_counts[self.observations[j]][tags[i]] / word_counts[self.observations[j]]
+        return matrix
 
+
+    def viterbi(self, T, N):
+        viterbi_tensor = torch.zeros([N + 2, T], dtype=torch.int32)
+        for s in range(1, N + 1):
+            viterbi[s, 1] = self.A[0][s] * self.B[0][s]
+        
+        for t in range(2, T + 1):
+            for s in range(1, N + 1):
+                viterbi[s, t] = max([viterbi[s0][t - 1] * self.A[s0][s] * self.B[t][s0] for s0 in range(N)])
+
+        viterbi[N + 1][T] = max([viterbi[s0][T] * self.A[s0][N + 1] for s0 in range(N)])
+        return viterbi
+        
     def forward(self, x):
         return viterbi_tensor
 
@@ -79,7 +105,7 @@ def create_model(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_co
     x = torch.randn(N, D_in)
     y = torch.randn(N, D_out)
 
-    model = HiddenMarkovModel(D_in, N, H, D_out, pos_pos_bigram_counts, word_pos_counts)
+    model = HiddenMarkovModel(D_in, N, H, D_out, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts)
 
     criterion = torch.nn.MSELoss(reduction='sum')
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
