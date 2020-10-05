@@ -1,25 +1,48 @@
 # python3.5 buildtagger.py <train_file_absolute_path> <model_file_absolute_path>
-
+import pdb
+import numpy as np
+import torch
 import os
 import math
 import sys
 import datetime
 
+class HiddenMarkovModel(torch.nn.Module):
+    def __init__(self, D_in, T, H, D_out, pos_pos_bigram_counts, word_pos_counts):
+        super(HiddenMarkovModel, self).__init__()
+        self.input_layer = torch.nn.Linear(D_in, H)
+        self.hidden_layers = [torch.nn.Linear(H, H) for _ in range(T - 1)]
+        self.output_layer = torch.nn.Linear(H, D_out)
+        self.A = self.calculate_transition_probabilities(pos_pos_bigram_counts)
+        self.B = self.observation_likelihoods(word_pos_counts)
+        self.viterbi_tensor = self.viterbi(T, H)
+
+    def calculate_transition_probabilities(self, pos_pos_bigram_counts):
+        pass
+
+    def observation_likelihoods(self, word_pos_counts):
+        pass
+
+    def viterbi(self, T, H):
+        viterbi_tensor = torch.zeros([T + 2, H], dtype=torch.int32)
+        pass
+
+    def forward(self, x):
+        return viterbi_tensor
+
+def calculate_bigram_counts(bigram_counts, previous_token, current_token):
+    if previous_token in bigram_counts and current_token in bigram_counts[previous_token]:
+        bigram_counts[previous_token][current_token] += 1
+    elif previous_token in bigram_counts:
+        bigram_counts[previous_token][current_token] = 1
+    else:
+        bigram_counts[previous_token] = {current_token: 1}
 
 def calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos_tag, current_pos_tag):
-    pos_pos_bigram = f'{previous_pos_tag}{current_pos_tag}'
-    if pos_pos_bigram in pos_pos_bigram_counts:
-        pos_pos_bigram_counts[pos_pos_bigram] += 1
-    else:
-        pos_pos_bigram_counts[pos_pos_bigram] = 1
+    calculate_bigram_counts(pos_pos_bigram_counts, previous_pos_tag, current_pos_tag)
 
 def calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag):
-    if current_word in word_pos_counts and current_pos_tag in word_pos_counts[current_word]:
-        word_pos_counts[current_word][current_pos_tag] += 1
-    elif current_word in word_pos_counts:
-        word_pos_counts[current_word][current_pos_tag] = 1
-    else:
-        word_pos_counts[current_word] = {current_pos_tag: 1}
+    calculate_bigram_counts(word_pos_counts, current_word, current_pos_tag)
 
 def calculate_unigram_counts(token, counts):
     if token in counts:
@@ -45,26 +68,32 @@ def process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_c
             calculate_unigram_counts(current_word, word_counts)
             calculate_unigram_counts(current_pos_tag, pos_tag_counts)
 
-def calculate_backoff_weight(pos_pos_bigram_counts, pos_tag_counts, first_pos_tag, second_pos_tag):
-    return 0.4 # TODO: Replace with actual computed value
+def create_model(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts):
+    # hyperparameters for our model: D_in is the input dimension, H is the hidden dimension
+    # D_out is the output_dimension and N is the number of hidden lyaers corresponding to the
+    # number of words to be pos tagged
+    D_in, N, H, D_out = 1, 10, 45, 1
+    learning_rate = 1e-4
+    iterations = 100
 
-# TODO: Vary discount in order to improve accuracy if necessary. Generally the value of discount lies between 0 and 1
-def kneser_ney(pos_pos_bigram_counts, pos_tag_counts, first_pos_tag, second_pos_tag, discount=0.5):
-    if f'{first_pos_tag}{second_pos_tag}' in pos_pos_bigram_counts:
-        return (pos_pos_bigram_counts[f'{first_pos_tag}{second_pos_tag}'] - discount) / (pos_tag_counts[f'{first_pos_tag}'])
-    else:
-        alpha = calculate_backoff_weight(pos_pos_bigram_counts, pos_tag_counts, first_pos_tag, second_pos_tag)
-        numerator = len([pos_tag for pos_tag in pos_tag_counts if f'{pos_tag}{second_pos_tag}' in pos_pos_bigram_counts])
-        denominator = sum([len([pos_tag for pos_tag in pos_tag_counts if f'{pos_tag}{second_pos_tag}' in pos_pos_bigram_counts]) for another_pos_tag in pos_tag_counts])
-        return alpha * numerator / denominator
+    x = torch.randn(N, D_in)
+    y = torch.randn(N, D_out)
 
-def calculate_kneser_ney_smoothed_probabilities(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts):
-    transition_probabilities = [kneser_ney(pos_pos_bigram_counts, pos_tag_counts, first_pos_tag, second_pos_tag) for first_pos_tag in pos_tag_counts for second_pos_tag in pos_tag_counts]
-    return transition_probabilities
+    model = HiddenMarkovModel(D_in, N, H, D_out, pos_pos_bigram_counts, word_pos_counts)
 
-def print_debug_info(transition_probabilities):
-    print('Debugging info: ')
-    print(f'{transition_probabilities}')
+    criterion = torch.nn.MSELoss(reduction='sum')
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    for iteration in range(iterations):
+        y_pred = model(x)
+
+        loss = criterion(y_pred, y)
+        if t % 100 == 99:
+            print('Iteration {}: Loss: {}'.format(iteration, loss.item()))
+
+        # Zero gradients, perform a backward pass, and update the weights.
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
 def train_model(train_file, model_file):
     # write your code here. You can add functions as well.
@@ -76,8 +105,8 @@ def train_model(train_file, model_file):
         train_data = file.read()
         lines = train_data.split('\n')
         process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts, lines)
-        transition_probabilities = calculate_kneser_ney_smoothed_probabilities(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts)
-        print_debug_info(transition_probabilities)
+        create_model(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts)
+        pdb.set_trace()
 
 
 if __name__ == "__main__":
