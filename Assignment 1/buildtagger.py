@@ -1,61 +1,53 @@
 # python3.5 buildtagger.py <train_file_absolute_path> <model_file_absolute_path>
 import pdb
 import numpy as np
-import torch
+import json
 import os
 import math
 import sys
 import datetime
 
-class HiddenMarkovModel(torch.nn.Module):
-    def __init__(self, D_in, T, H, D_out, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts):
-        super(HiddenMarkovModel, self).__init__()
-        self.input_layer = torch.nn.Linear(D_in, H)
-        self.hidden_layers = [torch.nn.Linear(H, H) for _ in range(T - 1)]
-        self.output_layer = torch.nn.Linear(H, D_out)
-        self.A = self.calculate_transition_probabilities(pos_pos_bigram_counts)
+class HiddenMarkovModel():
+    def __init__(self, T, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts):
+        self.A = self.calculate_transition_probabilities(pos_pos_bigram_counts, pos_tag_counts)
         self.observations = list(word_counts)[: T]
-        self.B = self.observation_likelihoods(T, word_counts, word_pos_counts)
-        self.viterbi_tensor = self.viterbi(T, H, A, B)
+        self.B = self.observation_likelihoods(T, word_counts, word_pos_counts, pos_tag_counts)
 
-    def calculate_transition_probabilities(self, pos_pos_bigram_counts, pos_tag_counts):
-        N = len(pos_tag_counts)
-        tags = list(pos_tag_counts.keys())
-        matrix = torch.randn([N + 1, N], dtype=torch.int32)
-        for i in range(1, N + 1):
-            for j in range(N):
-                matrix[i][j] = pos_pos_bigram_counts[tags[i]][tags[j]] / pos_tag_counts[tags[i]]
-        # Normalize the first row
-        for j in range(N):
-            matrix[0][j] = matrix[0][j] / (sum([matrix[0][i] for i in range(N)]))
+    def __fill_probabilities(self, size):
+        # initially fill with values taken from the logistic distribution
+        matrix = np.random.default_rng().logistic(size=size)
+        # normalize values in the first row
+        for i in range(matrix.shape[0]):
+            matrix[i] = np.abs(matrix[i])
+            matrix[i] = matrix[i] / np.sum(matrix[i])
         return matrix
 
+    def calculate_transition_probabilities(self, pos_pos_bigram_counts, pos_tag_counts):
+        # pdb.set_trace()
+        N = len(pos_tag_counts)
+        tags = list(pos_tag_counts.keys())
+        matrix = self.__fill_probabilities((N + 1, N))
+        for i in range(1, N + 1):
+            for j in range(N):
+                if tags[i - 1] in pos_pos_bigram_counts and tags[j] in pos_pos_bigram_counts[tags[i - 1]]:
+                    matrix[i, j] = pos_pos_bigram_counts[tags[i - 1]][tags[j]] / pos_tag_counts[tags[i - 1]]
+                else:
+                    matrix[i, j] = 0
+        return matrix
 
     def observation_likelihoods(self, T, word_counts, word_pos_counts, pos_tag_counts):
         N = len(pos_tag_counts)
         tags = list(pos_tag_counts.keys())
-        matrix = torch.randn([N, T], dtype=torch.int32)
+        # initially fill with values taken from the normal distribution
+        matrix = self.__fill_probabilities((N, T))
         for i in range(N):
             for j in range(T):
-                matrix[i][j] = word_pos_counts[self.observations[j]][tags[i]] / word_counts[self.observations[j]]
+                if tags[i] in word_pos_counts and tags[j] in word_pos_counts[tags[i]]:
+                    matrix[i, j] = word_pos_counts[tags[i]][tags[j]] / word_counts[tags[i]]
+                else:
+                    matrix[i, j] = 0
         return matrix
-
-
-    def viterbi(self, T, N):
-        viterbi_tensor = torch.zeros([N + 2, T], dtype=torch.int32)
-        for s in range(1, N + 1):
-            viterbi[s, 1] = self.A[0][s] * self.B[0][s]
         
-        for t in range(2, T + 1):
-            for s in range(1, N + 1):
-                viterbi[s, t] = max([viterbi[s0][t - 1] * self.A[s0][s] * self.B[t][s0] for s0 in range(N)])
-
-        viterbi[N + 1][T] = max([viterbi[s0][T] * self.A[s0][N + 1] for s0 in range(N)])
-        return viterbi
-        
-    def forward(self, x):
-        return viterbi_tensor
-
 def calculate_bigram_counts(bigram_counts, previous_token, current_token):
     if previous_token in bigram_counts and current_token in bigram_counts[previous_token]:
         bigram_counts[previous_token][current_token] += 1
@@ -94,45 +86,20 @@ def process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_c
             calculate_unigram_counts(current_word, word_counts)
             calculate_unigram_counts(current_pos_tag, pos_tag_counts)
 
-def create_model(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts):
-    # hyperparameters for our model: D_in is the input dimension, H is the hidden dimension
-    # D_out is the output_dimension and N is the number of hidden lyaers corresponding to the
-    # number of words to be pos tagged
-    D_in, N, H, D_out = 1, 10, 45, 1
-    learning_rate = 1e-4
-    iterations = 100
-
-    x = torch.randn(N, D_in)
-    y = torch.randn(N, D_out)
-
-    model = HiddenMarkovModel(D_in, N, H, D_out, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts)
-
-    criterion = torch.nn.MSELoss(reduction='sum')
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
-    for iteration in range(iterations):
-        y_pred = model(x)
-
-        loss = criterion(y_pred, y)
-        if t % 100 == 99:
-            print('Iteration {}: Loss: {}'.format(iteration, loss.item()))
-
-        # Zero gradients, perform a backward pass, and update the weights.
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
 def train_model(train_file, model_file):
     # write your code here. You can add functions as well.
-    with open(train_file) as file:
+    with open(train_file, mode='r') as input_file:
         pos_pos_bigram_counts = {}
         word_pos_counts = {}
         word_counts = {}
         pos_tag_counts = {}
-        train_data = file.read()
+        train_data = input_file.read()
         lines = train_data.split('\n')
         process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts, lines)
-        create_model(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts)
-        pdb.set_trace()
+        hmm = HiddenMarkovModel(10, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts)
+        # pdb.set_trace()
+        with open(model_file, mode='w') as output_file:
+            json.dump({'transition_probabilities': hmm.A.tolist(), 'observation_likelihoods': hmm.B.tolist()}, output_file)
 
 
 if __name__ == "__main__":
