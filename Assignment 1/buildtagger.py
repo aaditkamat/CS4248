@@ -8,7 +8,8 @@ import sys
 import datetime
 
 class HiddenMarkovModel():
-    def __init__(self, T, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts):
+    def __init__(self, T, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts, pos_tags):
+        self.pos_tags = pos_tags
         self.A = self.calculate_transition_probabilities(pos_pos_bigram_counts, pos_tag_counts)
         self.observations = list(word_counts)[: T]
         self.B = self.observation_likelihoods(T, word_counts, word_pos_counts, pos_tag_counts)
@@ -25,7 +26,7 @@ class HiddenMarkovModel():
     def calculate_transition_probabilities(self, pos_pos_bigram_counts, pos_tag_counts):
         # pdb.set_trace()
         N = len(pos_tag_counts)
-        tags = list(pos_tag_counts.keys())
+        tags = self.pos_tags
         matrix = self.__fill_probabilities((N + 1, N))
         for i in range(1, N + 1):
             for j in range(N):
@@ -37,7 +38,7 @@ class HiddenMarkovModel():
 
     def observation_likelihoods(self, T, word_counts, word_pos_counts, pos_tag_counts):
         N = len(pos_tag_counts)
-        tags = list(pos_tag_counts.keys())
+        tags = self.pos_tags
         # initially fill with values taken from the normal distribution
         matrix = self.__fill_probabilities((N, T))
         for i in range(N):
@@ -71,37 +72,40 @@ def calculate_unigram_counts(token, counts):
 def custom_split(tagged_word):
     return ('/'.join(tagged_word.split('/')[0: -1]), tagged_word.split('/')[-1])
 
-def process_lines(lines):
-    pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts = {}, {}, {}, {}
-    for line in lines:
-        tagged_words = line.split(' ')
-        current_word, current_pos_tag = custom_split(tagged_words[0])
-        calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag)
-        calculate_unigram_counts(current_word, word_counts)
-        calculate_unigram_counts(current_pos_tag, pos_tag_counts)
-        for i in range(1, len(tagged_words)):
-            current_word, current_pos_tag = custom_split(tagged_words[i])
-            previous_word, previous_pos_tag = custom_split(tagged_words[i - 1])
-            calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos_tag, current_pos_tag)
+def process_train_file(train_file):
+    with open(train_file, 'r') as train_file_handler:
+        pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts = {}, {}, {}, {}
+        train_data = train_file_handler.read()
+        lines = train_data.split('\n')
+        for line in lines:
+            tagged_words = line.split(' ')
+            current_word, current_pos_tag = custom_split(tagged_words[0])
             calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag)
             calculate_unigram_counts(current_word, word_counts)
             calculate_unigram_counts(current_pos_tag, pos_tag_counts)
-    return pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts
+            for i in range(1, len(tagged_words)):
+                current_word, current_pos_tag = custom_split(tagged_words[i])
+                previous_word, previous_pos_tag = custom_split(tagged_words[i - 1])
+                calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos_tag, current_pos_tag)
+                calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag)
+                calculate_unigram_counts(current_word, word_counts)
+                calculate_unigram_counts(current_pos_tag, pos_tag_counts)
+        return pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts
+
+def write_to_model_file(model_file, pos_tags, hmm):
+    with open(model_file, mode='w') as model_file_handler:
+            json.dump({
+                'pos_tags': list(pos_tags),
+                'transition_probabilities': hmm.A.tolist(),
+                'observation_likelihoods': hmm.B.tolist()
+            }, model_file_handler)
 
 def train_model(train_file, model_file):
-    # write your code here. You can add functions as well.
-    with open(train_file, mode='r') as train_file_handler:
-        train_data = train_file_handler.read()
-        lines = train_data.split('\n')
-        pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts = process_lines(lines)
-        hmm = HiddenMarkovModel(10, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts)
-        # pdb.set_trace()
-        with open(model_file, mode='w') as model_file_handler:
-            json.dump({
-                'pos_tags': list(pos_tag_counts),
-                'transition_probabilities': hmm.A.tolist(),
-                'observation_likelihoods': hmm.B.tolist()}, 
-                model_file_handler)
+    pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts = process_train_file(train_file)
+    pos_tags = list(pos_tag_counts.keys())
+    hmm = HiddenMarkovModel(10, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts, pos_tags)
+    # pdb.set_trace()
+    write_to_model_file(model_file, pos_tags, hmm)
 
 
 if __name__ == "__main__":
