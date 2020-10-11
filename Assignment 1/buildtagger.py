@@ -7,6 +7,9 @@ import math
 import sys
 import datetime
 
+START_TOKEN = '<s>'
+END_TOKEN = '</s>'
+
 class HiddenMarkovModel():
     def __init__(self, T, pos_pos_bigram_counts, pos_unigram_counts, word_unigram_counts, word_pos_bigram_counts):
         self.transition_probabilities = self.calculate_transition_probabilities(pos_pos_bigram_counts, pos_unigram_counts)
@@ -26,7 +29,8 @@ class HiddenMarkovModel():
 
     def calculate_observation_likelihoods(self, T, word_unigram_counts, word_pos_bigram_counts, pos_unigram_counts):
         tags = pos_unigram_counts.keys()
-        words = word_pos_bigram_counts.keys()
+        # actual words in the training file
+        words = set(word_pos_bigram_counts.keys()) - set([START_TOKEN, END_TOKEN])
         probabilities = {}
         for word in words:
             probabilities[word] = {}
@@ -67,17 +71,19 @@ def process_train_file(train_file):
         lines = train_data.split('\n')
         for line in lines:
             tagged_words = line.split(' ')
-            current_word, current_pos = custom_split(tagged_words[0])
-            calculate_word_pos_bigram_counts(word_pos_bigram_counts, current_word, current_pos)
-            calculate_unigram_counts(current_word, word_unigram_counts)
-            calculate_unigram_counts(current_pos, pos_unigram_counts)
-            for i in range(1, len(tagged_words)):
+            calculate_unigram_counts(START_TOKEN, word_unigram_counts)
+            for i in range(len(tagged_words)):
                 current_word, current_pos = custom_split(tagged_words[i])
-                previous_word, previous_pos = custom_split(tagged_words[i - 1])
-                calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos, current_pos)
                 calculate_word_pos_bigram_counts(word_pos_bigram_counts, current_word, current_pos)
                 calculate_unigram_counts(current_word, word_unigram_counts)
                 calculate_unigram_counts(current_pos, pos_unigram_counts)
+                # use start token at the beginning of a sentence as a pos tag
+                if i == 0:
+                    calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, START_TOKEN, current_pos)
+                else:
+                    previous_word, previous_pos = custom_split(tagged_words[i - 1])
+                    calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos, current_pos)
+            calculate_unigram_counts(END_TOKEN, word_unigram_counts)
         return pos_pos_bigram_counts, word_pos_bigram_counts, word_unigram_counts, pos_unigram_counts
 
 def write_to_model_file(model_file, pos_unigram_counts, hmm):
