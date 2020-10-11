@@ -11,34 +11,34 @@ START_TOKEN = '<s>'
 END_TOKEN = '</s>'
 
 class HiddenMarkovModel():
-    def __init__(self, T, pos_pos_bigram_counts, pos_unigram_counts, word_unigram_counts, word_pos_bigram_counts):
+    def __init__(self, pos_pos_bigram_counts, pos_unigram_counts, word_unigram_counts, word_pos_bigram_counts):
         self.transition_probabilities = self.calculate_transition_probabilities(pos_pos_bigram_counts, pos_unigram_counts)
-        self.observation_likelihoods = self.calculate_observation_likelihoods(T, word_unigram_counts, word_pos_bigram_counts, pos_unigram_counts)
+        self.observation_likelihoods = self.calculate_observation_likelihoods(word_unigram_counts, word_pos_bigram_counts, pos_unigram_counts)
 
     def calculate_transition_probabilities(self, pos_pos_bigram_counts, pos_unigram_counts):
-        tags = pos_unigram_counts.keys()
+        pos_tags = set(pos_unigram_counts.keys())
         probabilities = {}
-        for first_tag in tags:
+        for first_tag in pos_tags:
             probabilities[first_tag] = {}
-            for second_tag in tags:
+            for second_tag in pos_tags.union(set([END_TOKEN])):
                 if first_tag in pos_pos_bigram_counts and second_tag in pos_pos_bigram_counts[first_tag]:
                     probabilities[first_tag][second_tag] = pos_pos_bigram_counts[first_tag][second_tag] / pos_unigram_counts[first_tag]
                 else:
                     probabilities[first_tag][second_tag] = 0
         return probabilities
 
-    def calculate_observation_likelihoods(self, T, word_unigram_counts, word_pos_bigram_counts, pos_unigram_counts):
-        tags = pos_unigram_counts.keys()
+    def calculate_observation_likelihoods(self, word_unigram_counts, word_pos_bigram_counts, pos_unigram_counts):
+        pos_tags = set(pos_unigram_counts.keys())
         # actual words in the training file
-        words = set(word_pos_bigram_counts.keys()) - set([START_TOKEN, END_TOKEN])
+        words = set(word_unigram_counts.keys()) - set([START_TOKEN, END_TOKEN])
         probabilities = {}
         for word in words:
             probabilities[word] = {}
-            for tag in tags:
-                if word in word_pos_bigram_counts and tag in word_pos_bigram_counts[word]:
-                    probabilities[word][tag] = word_pos_bigram_counts[word][tag] / word_unigram_counts[word]
+            for pos_tag in pos_tags:
+                if word in word_pos_bigram_counts and pos_tag in word_pos_bigram_counts[word]:
+                    probabilities[word][pos_tag] = word_pos_bigram_counts[word][pos_tag] / pos_unigram_counts[pos_tag]
                 else:
-                    probabilities[word][tag] = 0
+                    probabilities[word][pos_tag] = 0
         return probabilities
         
 def calculate_bigram_counts(bigram_counts, previous_token, current_token):
@@ -72,6 +72,7 @@ def process_train_file(train_file):
         for line in lines:
             tagged_words = line.split(' ')
             calculate_unigram_counts(START_TOKEN, word_unigram_counts)
+            calculate_unigram_counts(START_TOKEN, pos_unigram_counts)
             for i in range(len(tagged_words)):
                 current_word, current_pos = custom_split(tagged_words[i])
                 calculate_word_pos_bigram_counts(word_pos_bigram_counts, current_word, current_pos)
@@ -80,10 +81,12 @@ def process_train_file(train_file):
                 # use start token at the beginning of a sentence as a pos tag
                 if i == 0:
                     calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, START_TOKEN, current_pos)
+                    calculate_word_pos_bigram_counts(word_pos_bigram_counts, current_word, START_TOKEN)
                 else:
                     previous_word, previous_pos = custom_split(tagged_words[i - 1])
                     calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos, current_pos)
             calculate_unigram_counts(END_TOKEN, word_unigram_counts)
+            calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, current_pos, END_TOKEN)
         return pos_pos_bigram_counts, word_pos_bigram_counts, word_unigram_counts, pos_unigram_counts
 
 def write_to_model_file(model_file, pos_unigram_counts, hmm):
@@ -96,7 +99,7 @@ def write_to_model_file(model_file, pos_unigram_counts, hmm):
 
 def train_model(train_file, model_file):
     pos_pos_bigram_counts, word_pos_bigram_counts, word_unigram_counts, pos_unigram_counts = process_train_file(train_file)
-    hmm = HiddenMarkovModel(10, pos_pos_bigram_counts, pos_unigram_counts, word_unigram_counts, word_pos_bigram_counts)
+    hmm = HiddenMarkovModel(pos_pos_bigram_counts, pos_unigram_counts, word_unigram_counts, word_pos_bigram_counts)
     # pdb.set_trace()
     write_to_model_file(model_file, pos_unigram_counts,hmm)
 

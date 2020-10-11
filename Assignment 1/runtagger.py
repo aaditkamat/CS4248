@@ -7,22 +7,44 @@ import math
 import sys
 import datetime
 
-def viterbi(A, B, N, T):
-    matrix  = np.zeros([N, T])
-    for s in range(N):
-        matrix[s, 0] = A[0][s] * B[s][0]
-    
-    for t in range(T):
-        for s in range(N):
-            matrix[s, t] = max([matrix[s0][t] * A[s0][s] * B[s][t] for s0 in range(N)])
+START_TOKEN = '<s>'
+END_TOKEN = '</s>'
 
-    return matrix
+def viterbi(transition_probabilities, observation_likelihoods, pos_tags, line):
+    def most_probable_tag(forward_ptr, curr_pos_tag, word):
+        best_tag, best_probability = None, 0
+        for prev_pos_tag in pos_tags:
+            if forward_ptr[prev_pos_tag][word] >= best_probability:
+                best_probability = forward_ptr[prev_pos_tag][word] * transition_probabilities[prev_pos_tag][curr_pos_tag]
+                best_tag = prev_pos_tag
+        return best_tag
 
-def get_words(lines):
-    words = []
-    for line in lines:
-        words.extend(line.split(' '))
-    return words
+    # Set probability of OOV (Out of Vocabulary) words as 0
+    def handle_out_of_vocabulary(word):
+        if word not in observation_likelihoods:
+            observation_likelihoods[word] = {}
+            for pos_tag in pos_tags:
+                observation_likelihoods[word][pos_tag] = 0
+
+    words = line.split(' ')
+    forward_ptr, back_ptr = {}, {}
+
+    for pos_tag in pos_tags:
+        forward_ptr[pos_tag], back_ptr[pos_tag] = {}, {}
+        handle_out_of_vocabulary(words[0])
+        forward_ptr[pos_tag][words[0]] = transition_probabilities[START_TOKEN][pos_tag] * observation_likelihoods[words[0]][pos_tag]
+        back_ptr[pos_tag][words[0]] = START_TOKEN
+
+    for i in range(1, len(words)):
+        handle_out_of_vocabulary(words[i])
+        for curr_pos_tag in pos_tags:          
+            forward_ptr[curr_pos_tag][words[i]] = max([forward_ptr[prev_pos_tag][words[i - 1]] * transition_probabilities[prev_pos_tag][curr_pos_tag] * observation_likelihoods[words[i]][curr_pos_tag] for prev_pos_tag in pos_tags])
+            back_ptr[curr_pos_tag][words[i]] = most_probable_tag(forward_ptr, curr_pos_tag, words[i - 1])
+
+    forward_ptr[END_TOKEN], back_ptr[END_TOKEN] = {}, {}
+    forward_ptr[END_TOKEN][words[-1]] = max([forward_ptr[pos_tag][words[-1]] * transition_probabilities[pos_tag][END_TOKEN] for pos_tag in pos_tags])
+    back_ptr[END_TOKEN][words[-1]] = most_probable_tag(forward_ptr, END_TOKEN, words[-1])
+    return back_ptr
 
 def process_test_file(test_file):
     with open(test_file) as test_file_handler:
@@ -32,35 +54,35 @@ def process_test_file(test_file):
 def process_model_file(model_file):
     with open(model_file) as model_file_handler:
         model = json.load(model_file_handler)
-        return model["pos_tags"], np.array(model["transition_probabilities"]), np.array(model["observation_likelihoods"])
+        return model["pos_tags"], model["transition_probabilities"], model["observation_likelihoods"]
 
-def get_pos_tag(line, index, viterbi_matrix, pos_tags):
-    column = list(viterbi_matrix[:, index])
-    print(column)
-    return pos_tags[column.index(max(column))]
+def get_pos_tags(words, back_ptr):
+    pos_tags = []
+    curr_pos_tag = END_TOKEN
+    for word in words[: : -1]:
+        curr_pos_tag = back_ptr[curr_pos_tag][word]
+        pos_tags.append(curr_pos_tag)
+    return pos_tags
 
-def write_to_output_file(word_pos_tag_mapping, lines, out_file):
-    for line in lines:
-        new_line = ' '.join(['{}/{}'.format(word, word_pos_tag_mapping[word]) for word in word_pos_tag_mapping])
-        with open(out_file, mode='a') as output_file_handler:
+def write_to_output_file(lines, out_file, pos_tags, transition_probabilities, observation_likelihoods):
+    with open(out_file, 'a') as output_file_handler:
+        ctr = 0
+        for line in lines:
+            back_ptr = viterbi(transition_probabilities, observation_likelihoods, pos_tags, line)
+            words = line.split(' ')
+            pos_tags = get_pos_tags(words, back_ptr)
+            new_line = ' '.join(['{}/{}'.format(words[i], pos_tags[i]) for i in range(len(words))])
             output_file_handler.write(new_line + '\n')
+            ctr += 1
+        print(ctr)
 
 def tag_sentence(test_file, model_file, out_file, start_time):
     lines = process_test_file(test_file)
-    words = get_words(lines)
-    pos_tags, A, B = process_model_file(model_file)
-    no_of_observations = B.shape[1]
-    word_pos_tag_mapping = {}
-    for start in range(0, 1000, no_of_observations):
-        observations = words[start: start + no_of_observations]
-        no_of_observations = len(observations)
-        viterbi_matrix = viterbi(A, B, len(pos_tags), len(observations))
-        for index in range(no_of_observations):
-            pos_tag = get_pos_tag(observations, index, viterbi_matrix, pos_tags)
-            word_pos_tag_mapping[observations[index]] = pos_tag
-    pdb.set_trace()
-    write_to_output_file(word_pos_tag_mapping, lines, out_file)
-
+    pos_tags, transition_probabilities, observation_likelihoods = process_model_file(model_file)
+    pos_tags.remove('<s>')
+    print(pos_tags, len(lines))
+    write_to_output_file(lines, out_file, pos_tags, transition_probabilities, observation_likelihoods)
+    
 if __name__ == "__main__":
     # make no changes here
     test_file = sys.argv[1]
