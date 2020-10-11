@@ -71,7 +71,8 @@ def calculate_unigram_counts(token, counts):
 def custom_split(tagged_word):
     return ('/'.join(tagged_word.split('/')[0: -1]), tagged_word.split('/')[-1])
 
-def process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts, lines):
+def process_lines(lines):
+    pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts = {}, {}, {}, {}
     for line in lines:
         tagged_words = line.split(' ')
         current_word, current_pos_tag = custom_split(tagged_words[0])
@@ -85,21 +86,22 @@ def process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_c
             calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag)
             calculate_unigram_counts(current_word, word_counts)
             calculate_unigram_counts(current_pos_tag, pos_tag_counts)
+    return pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts
 
 def train_model(train_file, model_file):
     # write your code here. You can add functions as well.
-    with open(train_file, mode='r') as input_file:
-        pos_pos_bigram_counts = {}
-        word_pos_counts = {}
-        word_counts = {}
-        pos_tag_counts = {}
-        train_data = input_file.read()
+    with open(train_file, mode='r') as train_file_handler:
+        train_data = train_file_handler.read()
         lines = train_data.split('\n')
-        process_lines(pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts, lines)
+        pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts = process_lines(lines)
         hmm = HiddenMarkovModel(10, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts)
         # pdb.set_trace()
-        with open(model_file, mode='w') as output_file:
-            json.dump({'transition_probabilities': hmm.A.tolist(), 'observation_likelihoods': hmm.B.tolist()}, output_file)
+        with open(model_file, mode='w') as model_file_handler:
+            json.dump({
+                'pos_tags': list(pos_tag_counts),
+                'transition_probabilities': hmm.A.tolist(),
+                'observation_likelihoods': hmm.B.tolist()}, 
+                model_file_handler)
 
 
 if __name__ == "__main__":
