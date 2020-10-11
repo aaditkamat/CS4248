@@ -42,8 +42,8 @@ class HiddenMarkovModel():
         matrix = self.__fill_probabilities((N, T))
         for i in range(N):
             for j in range(T):
-                if tags[i] in word_pos_counts and tags[j] in word_pos_counts[tags[i]]:
-                    matrix[i, j] = word_pos_counts[tags[i]][tags[j]] / word_counts[tags[i]]
+                if self.observations[j] in word_pos_counts and tags[i] in word_pos_counts[self.observations[j]]:
+                    matrix[i, j] = word_pos_counts[self.observations[j]][tags[i]] / word_counts[self.observations[j]]
                 else:
                     matrix[i, j] = 0
         return matrix
