@@ -8,46 +8,34 @@ import sys
 import datetime
 
 class HiddenMarkovModel():
-    def __init__(self, T, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts, pos_tags):
-        self.pos_tags = pos_tags
-        self.A = self.calculate_transition_probabilities(pos_pos_bigram_counts, pos_tag_counts)
-        self.observations = list(word_counts)[: T]
-        self.B = self.observation_likelihoods(T, word_counts, word_pos_counts, pos_tag_counts)
+    def __init__(self, T, pos_pos_bigram_counts, pos_unigram_counts, word_unigram_counts, word_pos_bigram_counts):
+        self.transition_probabilities = self.calculate_transition_probabilities(pos_pos_bigram_counts, pos_unigram_counts)
+        self.observation_likelihoods = self.calculate_observation_likelihoods(T, word_unigram_counts, word_pos_bigram_counts, pos_unigram_counts)
 
-    def __fill_probabilities(self, size):
-        # initially fill with values taken from the logistic distribution
-        matrix = np.random.default_rng().logistic(size=size)
-        # normalize values in the first row
-        for i in range(matrix.shape[0]):
-            matrix[i] = np.abs(matrix[i])
-            matrix[i] = matrix[i] / np.sum(matrix[i])
-        return matrix
-
-    def calculate_transition_probabilities(self, pos_pos_bigram_counts, pos_tag_counts):
-        # pdb.set_trace()
-        N = len(pos_tag_counts)
-        tags = self.pos_tags
-        matrix = self.__fill_probabilities((N + 1, N))
-        for i in range(1, N + 1):
-            for j in range(N):
-                if tags[i - 1] in pos_pos_bigram_counts and tags[j] in pos_pos_bigram_counts[tags[i - 1]]:
-                    matrix[i, j] = pos_pos_bigram_counts[tags[i - 1]][tags[j]] / pos_tag_counts[tags[i - 1]]
+    def calculate_transition_probabilities(self, pos_pos_bigram_counts, pos_unigram_counts):
+        tags = pos_unigram_counts.keys()
+        probabilities = {}
+        for first_tag in tags:
+            probabilities[first_tag] = {}
+            for second_tag in tags:
+                if first_tag in pos_pos_bigram_counts and second_tag in pos_pos_bigram_counts[first_tag]:
+                    probabilities[first_tag][second_tag] = pos_pos_bigram_counts[first_tag][second_tag] / pos_unigram_counts[first_tag]
                 else:
-                    matrix[i, j] = 0
-        return matrix
+                    probabilities[first_tag][second_tag] = 0
+        return probabilities
 
-    def observation_likelihoods(self, T, word_counts, word_pos_counts, pos_tag_counts):
-        N = len(pos_tag_counts)
-        tags = self.pos_tags
-        # initially fill with values taken from the normal distribution
-        matrix = self.__fill_probabilities((N, T))
-        for i in range(N):
-            for j in range(T):
-                if self.observations[j] in word_pos_counts and tags[i] in word_pos_counts[self.observations[j]]:
-                    matrix[i, j] = word_pos_counts[self.observations[j]][tags[i]] / word_counts[self.observations[j]]
+    def calculate_observation_likelihoods(self, T, word_unigram_counts, word_pos_bigram_counts, pos_unigram_counts):
+        tags = pos_unigram_counts.keys()
+        words = word_pos_bigram_counts.keys()
+        probabilities = {}
+        for word in words:
+            probabilities[word] = {}
+            for tag in tags:
+                if word in word_pos_bigram_counts and tag in word_pos_bigram_counts[word]:
+                    probabilities[word][tag] = word_pos_bigram_counts[word][tag] / word_unigram_counts[word]
                 else:
-                    matrix[i, j] = 0
-        return matrix
+                    probabilities[word][tag] = 0
+        return probabilities
         
 def calculate_bigram_counts(bigram_counts, previous_token, current_token):
     if previous_token in bigram_counts and current_token in bigram_counts[previous_token]:
@@ -57,11 +45,11 @@ def calculate_bigram_counts(bigram_counts, previous_token, current_token):
     else:
         bigram_counts[previous_token] = {current_token: 1}
 
-def calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos_tag, current_pos_tag):
-    calculate_bigram_counts(pos_pos_bigram_counts, previous_pos_tag, current_pos_tag)
+def calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos, current_pos):
+    calculate_bigram_counts(pos_pos_bigram_counts, previous_pos, current_pos)
 
-def calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag):
-    calculate_bigram_counts(word_pos_counts, current_word, current_pos_tag)
+def calculate_word_pos_bigram_counts(word_pos_bigram_counts, current_word, current_pos):
+    calculate_bigram_counts(word_pos_bigram_counts, current_word, current_pos)
 
 def calculate_unigram_counts(token, counts):
     if token in counts:
@@ -74,38 +62,37 @@ def custom_split(tagged_word):
 
 def process_train_file(train_file):
     with open(train_file, 'r') as train_file_handler:
-        pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts = {}, {}, {}, {}
+        pos_pos_bigram_counts, word_pos_bigram_counts, word_unigram_counts, pos_unigram_counts = {}, {}, {}, {}
         train_data = train_file_handler.read()
         lines = train_data.split('\n')
         for line in lines:
             tagged_words = line.split(' ')
-            current_word, current_pos_tag = custom_split(tagged_words[0])
-            calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag)
-            calculate_unigram_counts(current_word, word_counts)
-            calculate_unigram_counts(current_pos_tag, pos_tag_counts)
+            current_word, current_pos = custom_split(tagged_words[0])
+            calculate_word_pos_bigram_counts(word_pos_bigram_counts, current_word, current_pos)
+            calculate_unigram_counts(current_word, word_unigram_counts)
+            calculate_unigram_counts(current_pos, pos_unigram_counts)
             for i in range(1, len(tagged_words)):
-                current_word, current_pos_tag = custom_split(tagged_words[i])
-                previous_word, previous_pos_tag = custom_split(tagged_words[i - 1])
-                calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos_tag, current_pos_tag)
-                calculate_word_pos_counts(word_pos_counts, current_word, current_pos_tag)
-                calculate_unigram_counts(current_word, word_counts)
-                calculate_unigram_counts(current_pos_tag, pos_tag_counts)
-        return pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts
+                current_word, current_pos = custom_split(tagged_words[i])
+                previous_word, previous_pos = custom_split(tagged_words[i - 1])
+                calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos, current_pos)
+                calculate_word_pos_bigram_counts(word_pos_bigram_counts, current_word, current_pos)
+                calculate_unigram_counts(current_word, word_unigram_counts)
+                calculate_unigram_counts(current_pos, pos_unigram_counts)
+        return pos_pos_bigram_counts, word_pos_bigram_counts, word_unigram_counts, pos_unigram_counts
 
-def write_to_model_file(model_file, pos_tags, hmm):
+def write_to_model_file(model_file, pos_unigram_counts, hmm):
     with open(model_file, mode='w') as model_file_handler:
             json.dump({
-                'pos_tags': list(pos_tags),
-                'transition_probabilities': hmm.A.tolist(),
-                'observation_likelihoods': hmm.B.tolist()
+                'pos_tags': list(pos_unigram_counts.keys()),
+                'transition_probabilities': hmm.transition_probabilities,
+                'observation_likelihoods': hmm.observation_likelihoods
             }, model_file_handler)
 
 def train_model(train_file, model_file):
-    pos_pos_bigram_counts, word_pos_counts, word_counts, pos_tag_counts = process_train_file(train_file)
-    pos_tags = list(pos_tag_counts.keys())
-    hmm = HiddenMarkovModel(10, pos_pos_bigram_counts, pos_tag_counts, word_counts, word_pos_counts, pos_tags)
+    pos_pos_bigram_counts, word_pos_bigram_counts, word_unigram_counts, pos_unigram_counts = process_train_file(train_file)
+    hmm = HiddenMarkovModel(10, pos_pos_bigram_counts, pos_unigram_counts, word_unigram_counts, word_pos_bigram_counts)
     # pdb.set_trace()
-    write_to_model_file(model_file, pos_tags, hmm)
+    write_to_model_file(model_file, pos_unigram_counts,hmm)
 
 
 if __name__ == "__main__":
