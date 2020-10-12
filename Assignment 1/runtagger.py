@@ -67,20 +67,18 @@ def get_pos_tags(words, back_ptr):
 def write_to_output_file(lines, out_file, pos_tags, transition_probabilities, observation_likelihoods):
     with open(out_file, 'a') as output_file_handler:
         ctr = 0
-        for line in lines:
+        for line in lines[: -1]:
             back_ptr = viterbi(transition_probabilities, observation_likelihoods, pos_tags, line)
             words = line.split(' ')
-            pos_tags = get_pos_tags(words, back_ptr)
-            new_line = ' '.join(['{}/{}'.format(words[i], pos_tags[i]) for i in range(len(words))])
+            word_tags = get_pos_tags(words, back_ptr)
+            new_line = ' '.join(['{}/{}'.format(words[i], word_tags[i]) for i in range(len(words))])
             output_file_handler.write(new_line + '\n')
             ctr += 1
-        print(ctr)
 
 def tag_sentence(test_file, model_file, out_file, start_time):
     lines = process_test_file(test_file)
     pos_tags, transition_probabilities, observation_likelihoods = process_model_file(model_file)
     pos_tags.remove('<s>')
-    print(pos_tags, len(lines))
     write_to_output_file(lines, out_file, pos_tags, transition_probabilities, observation_likelihoods)
     
 if __name__ == "__main__":
