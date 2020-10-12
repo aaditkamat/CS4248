@@ -1,7 +1,5 @@
 # python3.5 buildtagger.py <train_file_absolute_path> <model_file_absolute_path>
-import pdb
-import numpy as np
-import json
+import pickle
 import os
 import math
 import sys
@@ -89,10 +87,12 @@ def process_train_file(train_file):
             calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, current_pos, END_TOKEN)
         return pos_pos_bigram_counts, word_pos_bigram_counts, word_unigram_counts, pos_unigram_counts
 
-def write_to_model_file(model_file, pos_unigram_counts, hmm):
-    with open(model_file, mode='w') as model_file_handler:
-            json.dump({
+def write_to_model_file(model_file, pos_unigram_counts, pos_pos_bigram_counts, word_pos_bigram_counts, hmm):
+    with open(model_file, mode='wb') as model_file_handler:
+            pickle.dump({
                 'pos_tags': list(pos_unigram_counts.keys()),
+                'pos_pos_bigram_counts': pos_pos_bigram_counts,
+                'word_pos_bigram_counts': word_pos_bigram_counts,
                 'transition_probabilities': hmm.transition_probabilities,
                 'observation_likelihoods': hmm.observation_likelihoods
             }, model_file_handler)
@@ -101,7 +101,7 @@ def train_model(train_file, model_file):
     pos_pos_bigram_counts, word_pos_bigram_counts, word_unigram_counts, pos_unigram_counts = process_train_file(train_file)
     hmm = HiddenMarkovModel(pos_pos_bigram_counts, pos_unigram_counts, word_unigram_counts, word_pos_bigram_counts)
     # pdb.set_trace()
-    write_to_model_file(model_file, pos_unigram_counts,hmm)
+    write_to_model_file(model_file, pos_unigram_counts, pos_pos_bigram_counts, word_pos_bigram_counts,hmm)
 
 
 if __name__ == "__main__":
