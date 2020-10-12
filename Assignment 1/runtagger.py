@@ -10,6 +10,11 @@ import datetime
 START_TOKEN = '<s>'
 END_TOKEN = '</s>'
 
+def debug(back_ptr, observation_likelihoods, pos_tags, line):
+    for word in line.split(' '):
+        for tag in pos_tags:
+            print('P({}|{}) = {}'.format(word, tag, back_ptr[tag][word]))
+
 def viterbi(transition_probabilities, observation_likelihoods, pos_tags, line):
     def most_probable_tag(forward_ptr, curr_pos_tag, word):
         best_tag, best_probability = None, 0
@@ -44,7 +49,9 @@ def viterbi(transition_probabilities, observation_likelihoods, pos_tags, line):
     forward_ptr[END_TOKEN], back_ptr[END_TOKEN] = {}, {}
     forward_ptr[END_TOKEN][words[-1]] = max([forward_ptr[pos_tag][words[-1]] * transition_probabilities[pos_tag][END_TOKEN] for pos_tag in pos_tags])
     back_ptr[END_TOKEN][words[-1]] = most_probable_tag(forward_ptr, END_TOKEN, words[-1])
-    return back_ptr
+
+    # debug(forward_ptr, pos_tags, line)
+    return forward_ptr
 
 def process_test_file(test_file):
     with open(test_file) as test_file_handler:
@@ -56,21 +63,23 @@ def process_model_file(model_file):
         model = json.load(model_file_handler)
         return model["pos_tags"], model["transition_probabilities"], model["observation_likelihoods"]
 
-def get_pos_tags(words, back_ptr):
-    pos_tags = []
-    curr_pos_tag = END_TOKEN
-    for word in words[: : -1]:
-        curr_pos_tag = back_ptr[curr_pos_tag][word]
-        pos_tags.append(curr_pos_tag)
-    return pos_tags
+def get_pos_tags(words, pos_tags, forward_ptr):
+    generated_pos_tags = []
+    for word in words:
+        best_tag, probability = pos_tags[0], forward_ptr[pos_tags[0]][word]
+        for tag in pos_tags[1: ]:
+            if forward_ptr[tag][word] > probability:
+                best_tag, probability = tag, forward_ptr[tag][word]
+        generated_pos_tags.append(best_tag)
+    return generated_pos_tags
 
 def write_to_output_file(lines, out_file, pos_tags, transition_probabilities, observation_likelihoods):
     with open(out_file, 'a') as output_file_handler:
         ctr = 0
         for line in lines[: -1]:
-            back_ptr = viterbi(transition_probabilities, observation_likelihoods, pos_tags, line)
+            forward_ptr = viterbi(transition_probabilities, observation_likelihoods, pos_tags, line)
             words = line.split(' ')
-            word_tags = get_pos_tags(words, back_ptr)
+            word_tags = get_pos_tags(words, pos_tags, forward_ptr)
             new_line = ' '.join(['{}/{}'.format(words[i], word_tags[i]) for i in range(len(words))])
             output_file_handler.write(new_line + '\n')
             ctr += 1
