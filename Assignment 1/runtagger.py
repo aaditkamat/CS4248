@@ -10,20 +10,7 @@ import datetime
 START_TOKEN = '<s>'
 END_TOKEN = '</s>'
 
-def debug(back_ptr, observation_likelihoods, pos_tags, line):
-    for word in line.split(' '):
-        for tag in pos_tags:
-            print('P({}|{}) = {}'.format(word, tag, back_ptr[tag][word]))
-
 def viterbi(transition_probabilities, observation_likelihoods, pos_tags, line):
-    def most_probable_tag(forward_ptr, curr_pos_tag, word):
-        best_tag, best_probability = None, 0
-        for prev_pos_tag in pos_tags:
-            if forward_ptr[prev_pos_tag][word] >= best_probability:
-                best_probability = forward_ptr[prev_pos_tag][word] * transition_probabilities[prev_pos_tag][curr_pos_tag]
-                best_tag = prev_pos_tag
-        return best_tag
-
     # Set probability of OOV (Out of Vocabulary) words as 0
     def handle_out_of_vocabulary(word):
         if word not in observation_likelihoods:
@@ -32,7 +19,7 @@ def viterbi(transition_probabilities, observation_likelihoods, pos_tags, line):
                 observation_likelihoods[word][pos_tag] = 0
 
     words = line.split(' ')
-    forward_ptr, back_ptr = {}, {}
+    forward_ptr = {}
 
     for pos_tag in pos_tags:
         forward_ptr[pos_tag], back_ptr[pos_tag] = {}, {}
@@ -46,11 +33,9 @@ def viterbi(transition_probabilities, observation_likelihoods, pos_tags, line):
             forward_ptr[curr_pos_tag][words[i]] = max([forward_ptr[prev_pos_tag][words[i - 1]] * transition_probabilities[prev_pos_tag][curr_pos_tag] * observation_likelihoods[words[i]][curr_pos_tag] for prev_pos_tag in pos_tags])
             back_ptr[curr_pos_tag][words[i]] = most_probable_tag(forward_ptr, curr_pos_tag, words[i - 1])
 
-    forward_ptr[END_TOKEN], back_ptr[END_TOKEN] = {}, {}
+    forward_ptr[END_TOKEN] = {}
     forward_ptr[END_TOKEN][words[-1]] = max([forward_ptr[pos_tag][words[-1]] * transition_probabilities[pos_tag][END_TOKEN] for pos_tag in pos_tags])
-    back_ptr[END_TOKEN][words[-1]] = most_probable_tag(forward_ptr, END_TOKEN, words[-1])
 
-    # debug(forward_ptr, pos_tags, line)
     return forward_ptr
 
 def process_test_file(test_file):
