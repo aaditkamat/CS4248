@@ -1,4 +1,5 @@
 # python3.5 runtagger.py <test_file_absolute_path> <model_file_absolute_path> <output_file_absolute_path>
+import pdb
 import pickle
 import os
 import math
@@ -9,28 +10,74 @@ START_TOKEN = '<s>'
 END_TOKEN = '</s>'
 
 # Set probability of OOV (Out of Vocabulary) words as 0
-def handle_out_of_vocabulary(words, pos_tags, observation_likelihoods):
+def handle_out_of_vocabulary(lines, model):
+    words = set([word for line in lines for word in line.split(' ')])
+    pos_tags = model['pos_tags']
+    observation_likelihoods = model['observation_likelihoods']
     for word in words:
         if word not in observation_likelihoods:
             observation_likelihoods[word] = {}
             for pos_tag in pos_tags:
                 observation_likelihoods[word][pos_tag] = 0
 
-def smoothen(pos_pos_bigram_counts, word_pos_bigram_counts, transition_probabilities, observation_likelihoods):
-    pass
+def calculate_alpha_values(bigram_counts, unigram_probabilities, bigram_probabilities):
+    alpha_values = {}
+    for prev_token in bigram_counts:
+        numerator = 1 - sum([bigram_probabilities[prev_token][next_token] for next_token in bigram_counts[prev_token] if bigram_counts[prev_token][next_token] > 0])
+        denominator = sum([unigram_probabilities[next_token] for next_token in bigram_counts[prev_token] if bigram_counts[prev_token][next_token] == 0])
+        alpha_values[prev_token] = numerator/denominator if denominator > 0 else numerator
+    return alpha_values
 
-def preprocessing(words, pos_tags, pos_pos_bigram_counts, word_pos_bigram_counts, transition_probabilities, observation_likelihoods):
-    handle_out_of_vocabulary(words, pos_tags, observation_likelihoods)
-    smoothen(pos_pos_bigram_counts, word_pos_bigram_counts, transition_probabilities, observation_likelihoods)
+def discount(probabilities, additive=0.01):
+    # Unigram probabilities
+    if type(list(probabilities.values())[0]) == float:
+        unigram_probabilities = probabilities
+        count_zeroes = len([probability for probability in unigram_probabilities.values() if probability == 0 ])
+        discount_factor = additive * count_zeroes / (len(unigram_probabilities.values()) - count_zeroes)
+        return {unigram: probability + additive if probability == 0 else probability  - discount_factor for unigram, probability in unigram_probabilities.items()}
+    # Bigram probabilities
+    bigram_probabilities = probabilities
+    count_zeroes = len([bigram_probabilities[prev_token][next_token] for prev_token in bigram_probabilities for next_token in bigram_probabilities[prev_token] if bigram_probabilities[prev_token][next_token] == 0 ])
+    discount_factor = additive * count_zeroes / (sum([len(bigram_probabilities[prev_token].values()) for prev_token in bigram_probabilities]) - count_zeroes)
+    discounted_bigram_probabilities = {}
+    for prev_token in bigram_probabilities:
+        discounted_bigram_probabilities[prev_token] = {}
+        for next_token in bigram_probabilities[prev_token]:
+            probability = bigram_probabilities[prev_token][next_token]
+            new_probability = probability + additive if probability == 0 else abs(probability - discount_factor)
+            discounted_bigram_probabilities[prev_token][next_token] = new_probability
+    return discounted_bigram_probabilities
 
-def viterbi(pos_pos_bigram_counts, word_pos_bigram_counts, transition_probabilities, observation_likelihoods, pos_tags, line):
+def smoothen(unigram_counts, bigram_counts, bigram_probabilities):
+    total_number_of_unigrams = sum(unigram_counts.values())
+    unigram_probabilities = {unigram: unigram_counts[unigram] / total_number_of_unigrams for unigram in unigram_counts}
+    discounted_unigram_probabilities = discount(unigram_probabilities)
+    discounted_bigram_probabilities = discount(bigram_probabilities)
+    pdb.set_trace()
+    alpha_values = calculate_alpha_values(bigram_counts, discounted_unigram_probabilities, discounted_bigram_probabilities)
+    for prev_token in bigram_counts:
+        for next_token in bigram_counts[prev_token]:
+            if bigram_counts[prev_token][next_token] > 0:
+                bigram_probabilities[prev_token][next_token] = discounted_bigram_probabilities[prev_token][next_token]
+            else:
+                bigram_probabilities[prev_token][next_token] = alpha_values[prev_token] * discounted_unigram_probabilities[next_token]
+
+def preprocess(lines, model):
+    handle_out_of_vocabulary(lines, model)
+    word_unigram_counts, word_pos_bigram_counts, observation_likelihoods = model['word_unigram_counts'], model['word_pos_bigram_counts'], model['observation_likelihoods']
+    # smoothen(word_unigram_counts, word_pos_bigram_counts, observation_likelihoods)
+    pos_unigram_counts, pos_pos_bigram_counts, transition_probabilities = model['word_unigram_counts'], model['pos_pos_bigram_counts'], model['transition_probabilities']
+    # smoothen(pos_unigram_counts, pos_pos_bigram_counts, transition_probabilities)
+
+def viterbi(model, line):
     words = line.split(' ')
-    preprocessing(words, pos_tags, pos_pos_bigram_counts, word_pos_bigram_counts, transition_probabilities, observation_likelihoods)
-
+    transition_probabilities = model['transition_probabilities']
+    observation_likelihoods = model['observation_likelihoods']
+    pos_tags = model['pos_tags']
     forward_ptr = {}
 
     for pos_tag in pos_tags:
-        forward_ptr[pos_tag] = {} 
+        forward_ptr[pos_tag] = {}
         forward_ptr[pos_tag][words[0]] = transition_probabilities[START_TOKEN][pos_tag] * observation_likelihoods[words[0]][pos_tag]
 
     for i in range(1, len(words)):
@@ -42,15 +89,14 @@ def viterbi(pos_pos_bigram_counts, word_pos_bigram_counts, transition_probabilit
 
     return forward_ptr
 
-def process_test_file(test_file):
+def read_test_file(test_file):
     with open(test_file) as test_file_handler:
         lines = test_file_handler.read().split('\n')
         return lines
 
-def process_model_file(model_file):
+def read_model_file(model_file):
     with open(model_file, mode='rb') as model_file_handler:
-        model = pickle.load(model_file_handler)
-        return model["pos_tags"],model["pos_pos_bigram_counts"],model["word_pos_bigram_counts"],model["transition_probabilities"],model["observation_likelihoods"]
+        return pickle.load(model_file_handler)
 
 def get_pos_tags(words, pos_tags, forward_ptr):
     generated_pos_tags = []
@@ -62,23 +108,25 @@ def get_pos_tags(words, pos_tags, forward_ptr):
         generated_pos_tags.append(best_tag)
     return generated_pos_tags
 
-def write_to_output_file(lines, out_file, pos_tags, pos_pos_bigram_counts, word_pos_bigram_counts, transition_probabilities, observation_likelihoods):
+def write_to_output_file(lines, out_file, model):
     with open(out_file, 'a') as output_file_handler:
         ctr = 0
         for line in lines[: -1]:
-            forward_ptr = viterbi(pos_pos_bigram_counts, word_pos_bigram_counts, transition_probabilities, observation_likelihoods, pos_tags, line)
+            forward_ptr = viterbi(model, line)
             words = line.split(' ')
+
+            pos_tags = model['pos_tags']
+ 
             word_tags = get_pos_tags(words, pos_tags, forward_ptr)
             new_line = ' '.join(['{}/{}'.format(words[i], word_tags[i]) for i in range(len(words))])
             output_file_handler.write(new_line + '\n')
             ctr += 1
 
 def tag_sentence(test_file, model_file, out_file, start_time):
-    lines = process_test_file(test_file)
-    pos_tags, pos_pos_bigram_counts, word_pos_bigram_counts, transition_probabilities, observation_likelihoods = process_model_file(model_file)
-    # Start token has been added for convenience
-    pos_tags.remove('<s>')
-    write_to_output_file(lines, out_file, pos_tags, pos_pos_bigram_counts, word_pos_bigram_counts, transition_probabilities, observation_likelihoods)
+    lines = read_test_file(test_file)
+    model = read_model_file(model_file)
+    preprocess(lines, model)
+    write_to_output_file(lines, out_file, model)
     
 if __name__ == "__main__":
     # make no changes here

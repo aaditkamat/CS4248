@@ -1,4 +1,5 @@
 # python3.5 buildtagger.py <train_file_absolute_path> <model_file_absolute_path>
+import pdb
 import pickle
 import os
 import math
@@ -18,7 +19,7 @@ class HiddenMarkovModel():
         probabilities = {}
         for first_tag in pos_tags:
             probabilities[first_tag] = {}
-            for second_tag in pos_tags.union(set([END_TOKEN])):
+            for second_tag in pos_tags:
                 if first_tag in pos_pos_bigram_counts and second_tag in pos_pos_bigram_counts[first_tag]:
                     probabilities[first_tag][second_tag] = pos_pos_bigram_counts[first_tag][second_tag] / pos_unigram_counts[first_tag]
                 else:
@@ -34,7 +35,7 @@ class HiddenMarkovModel():
             probabilities[word] = {}
             for pos_tag in pos_tags:
                 if word in word_pos_bigram_counts and pos_tag in word_pos_bigram_counts[word]:
-                    probabilities[word][pos_tag] = word_pos_bigram_counts[word][pos_tag] / pos_unigram_counts[pos_tag]
+                    probabilities[word][pos_tag] = word_pos_bigram_counts[word][pos_tag] / word_unigram_counts[word]
                 else:
                     probabilities[word][pos_tag] = 0
         return probabilities
@@ -84,24 +85,28 @@ def process_train_file(train_file):
                     previous_word, previous_pos = custom_split(tagged_words[i - 1])
                     calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, previous_pos, current_pos)
             calculate_unigram_counts(END_TOKEN, word_unigram_counts)
+            calculate_unigram_counts(END_TOKEN, pos_unigram_counts)
             calculate_pos_pos_bigram_counts(pos_pos_bigram_counts, current_pos, END_TOKEN)
         return pos_pos_bigram_counts, word_pos_bigram_counts, word_unigram_counts, pos_unigram_counts
 
-def write_to_model_file(model_file, pos_unigram_counts, pos_pos_bigram_counts, word_pos_bigram_counts, hmm):
+def write_to_model_file(model_file, model):
     with open(model_file, mode='wb') as model_file_handler:
-            pickle.dump({
-                'pos_tags': list(pos_unigram_counts.keys()),
-                'pos_pos_bigram_counts': pos_pos_bigram_counts,
-                'word_pos_bigram_counts': word_pos_bigram_counts,
-                'transition_probabilities': hmm.transition_probabilities,
-                'observation_likelihoods': hmm.observation_likelihoods
-            }, model_file_handler)
+            pickle.dump(model, model_file_handler)
 
 def train_model(train_file, model_file):
     pos_pos_bigram_counts, word_pos_bigram_counts, word_unigram_counts, pos_unigram_counts = process_train_file(train_file)
     hmm = HiddenMarkovModel(pos_pos_bigram_counts, pos_unigram_counts, word_unigram_counts, word_pos_bigram_counts)
+    model = {
+        'pos_tags': list(set(pos_unigram_counts.keys()) - set([START_TOKEN, END_TOKEN])),
+        'word_unigram_counts': word_unigram_counts,
+        'pos_unigram_counts': pos_unigram_counts,
+        'pos_pos_bigram_counts': pos_pos_bigram_counts,
+        'word_pos_bigram_counts': word_pos_bigram_counts,
+        'transition_probabilities': hmm.transition_probabilities,
+        'observation_likelihoods': hmm.observation_likelihoods
+    }
     # pdb.set_trace()
-    write_to_model_file(model_file, pos_unigram_counts, pos_pos_bigram_counts, word_pos_bigram_counts,hmm)
+    write_to_model_file(model_file, model)
 
 
 if __name__ == "__main__":
