@@ -55,7 +55,6 @@ def smoothen(unigram_counts, bigram_counts, bigram_probs):
     unigram_probs = {unigram: unigram_counts[unigram] / total_number_of_unigrams for unigram in unigram_counts}
     discounted_unigram_probs = discount(unigram_probs)
     discounted_bigram_probs = discount(bigram_probs)
-    pdb.set_trace()
     alpha_values = calculate_alpha_values(bigram_counts, discounted_unigram_probs, discounted_bigram_probs)
     for prev_token in bigram_counts:
         for next_token in bigram_counts[prev_token]:
@@ -88,7 +87,7 @@ def viterbi(model, line):
 
     forward_ptr[(END_TOKEN, words[-1])] = max([forward_ptr[(tag, words[-1])] * transition_probs[(tag, END_TOKEN)] for tag in tags])
 
-    pdb.set_trace()
+    # pdb.set_trace()
     return forward_ptr
 
 def read_test_file(test_file):

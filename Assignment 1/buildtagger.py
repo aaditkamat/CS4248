@@ -20,7 +20,7 @@ class HiddenMarkovModel():
 
     def calculate_transition_probs(self, tag_counts, bigram_counts):
         tags = list(tag_counts.keys())
-        bigrams = permutations(tags, 2)
+        bigrams = product(tags, tags)
         return {bigram: bigram_counts[bigram] / tag_counts[bigram[0]] if tag_counts[bigram[0]] > 0 else 0 for bigram in bigrams}
 
     def calculate_emission_probs(self, word_counts, tag_counts, bigram_counts):
