@@ -11,64 +11,41 @@ from collections import defaultdict
 START_TOKEN = '<s>'
 END_TOKEN = '</s>'
 
-# Set prob of OOV (Out of Vocabulary) words as 0
-# def handle_out_of_vocabulary(lines, model):
-#     words = set([word for line in lines for word in line.split(' ')])
-#     pos_tags = model['pos_tags']
-#     emission_probs = model['emission_probs']
-#     for word in words:
-#         if word not in emission_probs:
-#             emission_probs[word] = {}
-#             for pos_tag in pos_tags:
-#                 emission_probs[word][pos_tag] = 0
-
-def calculate_alpha_values(bigram_counts, unigram_probs, bigram_probs):
+def calc_alpha_values(bigram_counts, unigram_probs, bigram_probs):
     alpha_values = {}
-    for prev_token in bigram_counts:
-        numerator = 1 - sum([bigram_probs[prev_token][next_token] for next_token in bigram_counts[prev_token] if bigram_counts[prev_token][next_token] > 0])
-        denominator = sum([unigram_probs[next_token] for next_token in bigram_counts[prev_token] if bigram_counts[prev_token][next_token] == 0])
-        alpha_values[prev_token] = numerator/denominator if denominator > 0 else numerator
+    for bigram in bigram_counts:
+        numerator = 1 - sum([bigram_probs[bigram] for bigram in bigram_counts if bigram_counts[bigram] > 0])
+        denominator = sum([unigram_probs[bigram[0]] for bigram in bigram_counts if bigram_counts[bigram] == 0])
+        alpha_values[bigram[0]] = numerator/denominator if denominator > 0 else numerator
     return alpha_values
 
-def discount(probs, additive=0.01):
-    # Unigram probs
-    if type(list(probs.values())[0]) == float:
-        unigram_probs = probs
-        count_zeroes = len([prob for prob in unigram_probs.values() if prob == 0 ])
-        discount_factor = additive * count_zeroes / (len(unigram_probs.values()) - count_zeroes)
-        return {unigram: prob + additive if prob == 0 else prob  - discount_factor for unigram, prob in unigram_probs.items()}
-    # Bigram probs
-    bigram_probs = probs
-    count_zeroes = len([bigram_probs[prev_token][next_token] for prev_token in bigram_probs for next_token in bigram_probs[prev_token] if bigram_probs[prev_token][next_token] == 0 ])
-    discount_factor = additive * count_zeroes / (sum([len(bigram_probs[prev_token].values()) for prev_token in bigram_probs]) - count_zeroes)
-    discounted_bigram_probs = {}
-    for prev_token in bigram_probs:
-        discounted_bigram_probs[prev_token] = {}
-        for next_token in bigram_probs[prev_token]:
-            prob = bigram_probs[prev_token][next_token]
-            new_prob = prob + additive if prob == 0 else abs(prob - discount_factor)
-            discounted_bigram_probs[prev_token][next_token] = new_prob
-    return discounted_bigram_probs
+def calc_disc_probs(unigram_counts, bigram_counts):
+    total_unigram_counts, total_bigram_counts = len(unigram_counts), len(bigram_counts)
+    disc_unigram_probs = {unigram: (unigram_count + 1) / total_unigram_counts for unigram, unigram_count in unigram_counts.items()}
+    disc_bigram_probs = {bigram: (bigram_count + 1) / (unigram_counts[bigram[0]]) for bigram, bigram_count in bigram_counts.items()}
+    return disc_unigram_probs, disc_bigram_probs
 
 def smoothen(unigram_counts, bigram_counts, bigram_probs):
     total_number_of_unigrams = sum(unigram_counts.values())
     unigram_probs = {unigram: unigram_counts[unigram] / total_number_of_unigrams for unigram in unigram_counts}
-    discounted_unigram_probs = discount(unigram_probs)
-    discounted_bigram_probs = discount(bigram_probs)
-    alpha_values = calculate_alpha_values(bigram_counts, discounted_unigram_probs, discounted_bigram_probs)
-    for prev_token in bigram_counts:
-        for next_token in bigram_counts[prev_token]:
-            if bigram_counts[prev_token][next_token] > 0:
-                bigram_probs[prev_token][next_token] = discounted_bigram_probs[prev_token][next_token]
-            else:
-                bigram_probs[prev_token][next_token] = alpha_values[prev_token] * discounted_unigram_probs[next_token]
 
-# def preprocess(lines, model):
-#     # handle_out_of_vocabulary(lines, model)
-#     word_unigram_counts, word_pos_bigram_counts, emission_probs = model['word_unigram_counts'], model['word_pos_bigram_counts'], model['emission_probs']
-#     # smoothen(word_unigram_counts, word_pos_bigram_counts, emission_probs)
-#     pos_unigram_counts, pos_pos_bigram_counts, transition_probs = model['word_unigram_counts'], model['pos_pos_bigram_counts'], model['transition_probs']
-#     # smoothen(pos_unigram_counts, pos_pos_bigram_counts, transition_probs)
+    disc_unigram_probs, disc_bigram_probs = calc_disc_probs(unigram_counts, bigram_counts)
+
+    bigram_probs = disc_bigram_probs
+    
+    # alpha_values = calc_alpha_values(bigram_counts, disc_unigram_probs, disc_bigram_probs)
+
+    # for bigram in bigram_probs:
+    #     if bigram_counts[bigram] > 0:
+    #         bigram_probs[bigram] = disc_bigram_probs[bigram]
+    #     else:
+    #         bigram_probs[bigram] = alpha_values[bigram[0]] * disc_unigram_probs[bigram[1]]
+
+def preprocess(lines, model):
+    word_counts, bigram_counts, emission_probs = model['word_counts'], model['bigram_counts'], model['emission_probs']
+    smoothen(word_counts, bigram_counts, emission_probs)
+    tag_counts, transition_probs = model['word_counts'], model['transition_probs']
+    smoothen(tag_counts, bigram_counts, transition_probs)
 
 def viterbi(model, line):
     words = line.split(' ')
@@ -123,7 +100,7 @@ def get_pos_tags(words, tags, forward_ptr):
     return generated_pos_tags
 
 def write_to_output_file(lines, out_file, model):
-    with open(out_file, 'a') as output_file_handler:
+    with open(out_file, 'w') as output_file_handler:
         ctr = 0
         for line in lines[: -1]:
             forward_ptr = viterbi(model, line)
