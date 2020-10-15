@@ -1,40 +1,56 @@
-# python3.5 buildtagger.py <train_file_absolute_path> <model_file_absolute_path>
-import pdb
 import pickle
-import os
-import math
 import sys
 import datetime
 
 from collections import defaultdict
-from itertools import permutations, product
+from itertools import product
 
 START_TOKEN = '<s>'
 END_TOKEN = '</s>'
 
+
 class HiddenMarkovModel():
     def __init__(self, word_counts, tag_counts, bigram_counts):
-        self.transition_probs, self.emission_probs = defaultdict(float), defaultdict(float) 
-        self.transition_probs = self.calculate_transition_probs(tag_counts, bigram_counts)
-        self.emission_probs = self.calculate_emission_probs(word_counts, tag_counts, bigram_counts)
+        self.word_counts = word_counts
+        self.tag_counts = tag_counts
+        self.tags = list(self.tag_counts.keys())
+        self.words = list(self.word_counts.keys())
+        self.bigram_counts = bigram_counts
+        self.transition_probs, self.emission_probs = defaultdict(
+            float), defaultdict(float)
+        self.transition_probs = self.calculate_transition_probs(
+            tag_counts, bigram_counts)
+        self.emission_probs = self.calculate_emission_probs(
+            word_counts, tag_counts, bigram_counts)
+
+    def calculate_probs(self, bigrams):
+        probs = {}
+        for bigram in bigrams:
+            if self.tag_counts[bigram[0]] > 0:
+                probs[bigram] = self.bigram_counts[bigram] / \
+                    self.tag_counts[bigram[0]]
+            else:
+                probs[bigram] = 0
+        return probs
 
     def calculate_transition_probs(self, tag_counts, bigram_counts):
-        tags = list(tag_counts.keys())
-        bigrams = product(tags, tags)
-        return {bigram: bigram_counts[bigram] / tag_counts[bigram[0]] if tag_counts[bigram[0]] > 0 else 0 for bigram in bigrams}
+        bigrams = product(self.tags, self.tags)
+        return self.calculate_probs(bigrams)
 
     def calculate_emission_probs(self, word_counts, tag_counts, bigram_counts):
-        words = list(word_counts.keys())
-        tags = list(tag_counts.keys())
-        bigrams = product(tags, words)
-        return {bigram: bigram_counts[bigram] / tag_counts[bigram[0]] if tag_counts[bigram[0]] > 0 else 0 for bigram in bigrams }
+        bigrams = product(self.tags, self.words)
+        return self.calculate_probs(bigrams)
+
 
 def get_word_tag_pairs(line):
-    return [('/'.join(token.split('/')[0: -1]), token.split('/')[-1]) for token in line.split(' ')]
+    return [('/'.join(token.split('/')[0: -1]),
+             token.split('/')[-1]) for token in line.split(' ')]
+
 
 def process_train_file(train_file):
     with open(train_file, 'r') as train_file_handler:
-        bigram_counts, word_counts, tag_counts = defaultdict(int), defaultdict(int),  defaultdict(int)
+        bigram_counts, word_counts, tag_counts = defaultdict(
+            int), defaultdict(int),  defaultdict(int)
         train_data = train_file_handler.read()
         lines = train_data.split('\n')
 
@@ -63,9 +79,11 @@ def process_train_file(train_file):
         tag_counts[END_TOKEN] = len(lines)
         return word_counts, tag_counts, bigram_counts
 
+
 def write_to_model_file(model_file, model):
     with open(model_file, mode='wb') as model_file_handler:
-            pickle.dump(model, model_file_handler)
+        pickle.dump(model, model_file_handler)
+
 
 def train_model(train_file, model_file):
     word_counts, tag_counts, bigram_counts = process_train_file(train_file)
