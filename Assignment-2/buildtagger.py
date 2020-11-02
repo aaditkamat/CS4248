@@ -142,6 +142,7 @@ torch.save(
         "hyperparameters": [
             EMBEDDING_DIM,
             HIDDEN_DIM,
+            BATCH_SIZE,
             words_to_ix,
             tags_to_ix,
             max_length,

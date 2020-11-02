@@ -60,9 +60,14 @@ class BiLSTMTagger(nn.Module):
 
 
 meta_data = torch.load("sent-model")
-EMBEDDING_DIM, HIDDEN_DIM, training_words_to_ix, tags_to_ix, max_length = meta_data[
-    "hyperparameters"
-]
+(
+    EMBEDDING_DIM,
+    HIDDEN_DIM,
+    BATCH_SIZE,
+    training_words_to_ix,
+    tags_to_ix,
+    max_length,
+) = meta_data["hyperparameters"]
 model = BiLSTMTagger(
     EMBEDDING_DIM, HIDDEN_DIM, len(training_words_to_ix), len(tags_to_ix), 0
 )
@@ -98,7 +103,6 @@ def generate_tags(tag_scores, tags_to_ix):
     return [get_tag(tags_to_ix, idx) for idx in idxs]
 
 
-BATCH_SIZE = 128
 with open("sents.out", "w") as output_file_handler:
     indices = list(range(len(test_data)))
     for i in range(0, len(test_data), BATCH_SIZE):
