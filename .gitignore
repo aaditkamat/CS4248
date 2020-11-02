@@ -1,1 +1,4 @@
 **/*.pdf
+**/venv
+**/.vscode
+**/sent-model
