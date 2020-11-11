@@ -1,5 +1,6 @@
 import datetime
 import random
+import sys
 
 import torch
 import torch.nn as nn
@@ -10,14 +11,58 @@ torch.manual_seed(1)
 torch.cuda.manual_seed(1)
 random.seed(1)
 
-with open("sents.train", mode="r") as train_file_handler:
-    training_data = []
-    for line in train_file_handler.read().split("\n"):
-        tokens = line.split()
-        sentence = ["/".join(token.split("/")[:-1]).lower() for token in tokens]
-        tags = [token.split("/")[-1] for token in tokens]
-        training_data.append((sentence, tags))
-    training_data = training_data[:-1]
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+EPOCHS = 5
+WORD_PAD_IX = 1
+TAG_PAD_IX = 0
+EMBEDDING_DIM = 100
+HIDDEN_DIM = 128
+DROPOUT_RATE = 0.25
+BATCH_SIZE = 32
+
+
+class BiLSTMTagger(nn.Module):
+    def __init__(
+        self,
+        embedding_dim,
+        hidden_dim,
+        vocab_size,
+        tagset_size,
+        padding_idx,
+        dropout_rate,
+    ):
+        super(BiLSTMTagger, self).__init__()
+        self.hidden_dim = hidden_dim
+
+        self.dropout_rate = dropout_rate
+        self.word_embeddings = nn.Embedding(
+            vocab_size, embedding_dim, padding_idx=padding_idx
+        )
+
+        # The LSTM takes word embeddings as inputs, and outputs hidden states
+        # with dimensionality hidden_dim.
+        self.lstm = nn.LSTM(
+            embedding_dim,
+            hidden_dim,
+            num_layers=2,
+            bidirectional=True,
+            dropout=dropout_rate,
+        )
+
+        # The linear layer that maps from hidden state space to tag space
+        self.hidden2tag = nn.Linear(hidden_dim * 2, tagset_size)
+
+    def forward(self, sentence_batch):
+        embeds = self.word_embeddings(sentence_batch)
+
+        lstm_out, _ = self.lstm(embeds)
+        lstm_dropout = F.dropout(lstm_out, self.dropout_rate)
+
+        tag_space = F.dropout(self.hidden2tag(lstm_dropout), self.dropout_rate)
+
+        tag_scores = F.log_softmax(tag_space, dim=1)
+
+        return tag_scores
 
 
 def get_ix(seq, to_ix, start_index):
@@ -26,127 +71,126 @@ def get_ix(seq, to_ix, start_index):
             to_ix[token] = len(to_ix) + start_index
 
 
-words_to_ix, tags_to_ix = {}, {}
-for sentence, tags in training_data:
-    get_ix(sentence, words_to_ix, 2)
-    get_ix(tags, tags_to_ix, 1)
-words_to_ix["-PAD-"] = 0
-words_to_ix["-OOV-"] = 1
-tags_to_ix["-PAD-"] = 0
-
-# Size of sequences is: [sentence_length, batch_size]
-def prepare_sequences(seqs, to_ix, max_length):
-    padded_tensors = []
-    for seq in seqs:
-        idxs = [to_ix[token] if token.lower() in to_ix else 0 for token in seq]
-        orig_tensor = torch.tensor(idxs, dtype=torch.long)
-        padded_tensor = F.pad(orig_tensor, (0, max_length - len(orig_tensor))).view(
-            1, max_length
-        )
-        padded_tensors.append(padded_tensor)
-    return torch.cat(padded_tensors).transpose(0, 1)
+def to_ix(training_data):
+    words_to_ix, tags_to_ix = {}, {}
+    for sentence, tags in training_data:
+        get_ix(sentence, words_to_ix, WORD_PAD_IX + 1)
+        get_ix(tags, tags_to_ix, TAG_PAD_IX + 1)
+    words_to_ix["-UNK-"] = WORD_PAD_IX - 1
+    words_to_ix["-PAD-"] = WORD_PAD_IX
+    tags_to_ix["-PAD-"] = TAG_PAD_IX
+    return words_to_ix, tags_to_ix
 
 
-class BiLSTMTagger(nn.Module):
-    def __init__(self, embedding_dim, hidden_dim, vocab_size, tagset_size, padding_idx):
-        super(BiLSTMTagger, self).__init__()
-        self.hidden_dim = hidden_dim
-
-        self.word_embeddings = nn.Embedding(
-            vocab_size, embedding_dim, padding_idx=padding_idx
-        )
-
-        # The LSTM takes word embeddings as inputs, and outputs hidden states
-        # with dimensionality hidden_dim.
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers=2, bidirectional=True)
-
-        # The linear layer that maps from hidden state space to tag space
-        self.hidden2tag = nn.Linear(hidden_dim * 2, tagset_size)
-
-    def forward(self, sentence_batch, dropout_rate=0.25):
-        embeds = self.word_embeddings(sentence_batch)
-
-        lstm_out, _ = self.lstm(embeds)
-        lstm_dropout = F.dropout(lstm_out, dropout_rate)
-
-        tag_space = self.hidden2tag(lstm_dropout)
-
-        tag_scores = F.log_softmax(tag_space, dim=1)
-
-        return tag_scores
+def prepare_sequence(seq, to_ix, pad_ix, pad_length):
+    idxs = [to_ix[w] for w in seq]
+    idxs.extend([pad_ix for _ in range(pad_length - len(idxs))])
+    return idxs
 
 
-EMBEDDING_DIM = 64
-HIDDEN_DIM = 64
-
-model = BiLSTMTagger(EMBEDDING_DIM, HIDDEN_DIM, len(words_to_ix), len(tags_to_ix), 0)
-loss_function = nn.NLLLoss()
-optimizer = optim.SGD(model.parameters(), lr=0.1)
-max_length = max([len(sentence) for sentence, tags in training_data])
+def form_batch(data, size):
+    new_data = []
+    for i in range(0, len(data), size):
+        new_data.append(data[i : i + size])
+    return new_data
 
 
-def create_train_batches(permutations, training_data):
-    sentences, tags = [], []
-    for index in permutations[i : i + BATCH_SIZE]:
-        sentences.append([word.lower() for word in training_data[index][0]])
-        tags.append(training_data[index][1])
-    return sentences, tags
+def create_batches(training_data, words_to_ix, tags_to_ix):
+    batched_data = form_batch(training_data, BATCH_SIZE)
 
-
-BATCH_SIZE = 128
-EPOCHS = 2
-
-for _ in range(EPOCHS):
-    permutations = torch.randperm(len(training_data))
-    start_time = datetime.datetime.now()
-    for i in range(0, len(training_data), BATCH_SIZE):
-        # Step 1. Remember that Pytorch accumulates gradients.
-        # We need to clear them out before each instance
-        model.zero_grad()
-
-        # Split training data into minibatches
-        sentences, tags = create_train_batches(permutations, training_data)
-
-        # Step 2. Get our inputs ready for the network, that is, turn them into
-        # Tensors of word indices.
-        sentences_in = prepare_sequences(sentences, words_to_ix, max_length)
-        targets = prepare_sequences(tags, tags_to_ix, max_length)
-
-        # Step 3. Run our forward pass.
-        tag_scores = model(sentences_in)
-        tag_scores = tag_scores.view(-1, tag_scores.shape[-1])
-        targets = targets.reshape(-1)
-
-        # Step 4. Compute the loss, gradients, and update the parameters by
-        #  calling optimizer.step()
-        loss = loss_function(tag_scores, targets)
-        loss.backward()
-        optimizer.step()
-
-        if i % (BATCH_SIZE * 100) == 0 and i >= (BATCH_SIZE * 100):
-            end_time = datetime.datetime.now()
-            elapsed_time = (end_time - start_time).seconds
-            elapsed_mins = elapsed_time // 60
-            elapsed_secs = elapsed_time - (elapsed_mins * 60)
-            print(
-                "100 more batches processed in {}m and {}s".format(
-                    elapsed_mins, elapsed_secs
-                )
+    sentences_data, tags_data = [], []
+    for batch in batched_data:
+        sentence_batch, tag_batch = [], []
+        max_sentences_length = max([len(sentences) for sentences, _ in batch])
+        max_tags_length = max([len(tags) for _, tags in batch])
+        for sentences, tags in batch:
+            numericalized_sentences = prepare_sequence(
+                sentences, words_to_ix, WORD_PAD_IX, max_sentences_length
             )
-            print("Loss: {}".format(loss))
-            start_time = datetime.datetime.now()
+            numericalized_tags = prepare_sequence(
+                tags, tags_to_ix, TAG_PAD_IX, max_tags_length
+            )
+            sentence_batch.append(numericalized_sentences)
+            tag_batch.append(numericalized_tags)
+        sentence_batch = torch.tensor(sentence_batch, device=DEVICE)
+        tag_batch = torch.tensor(tag_batch, device=DEVICE)
+        sentences_data.append(sentence_batch)
+        tags_data.append(tag_batch)
+    return sentences_data, tags_data
 
-torch.save(
-    {
-        "model": model.state_dict(),
-        "hyperparameters": [
-            EMBEDDING_DIM,
-            HIDDEN_DIM,
-            BATCH_SIZE,
-            words_to_ix,
-            tags_to_ix,
-            max_length,
-        ],
-    },
-    "sent-model",
-)
+
+def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
+    model = BiLSTMTagger(
+        EMBEDDING_DIM,
+        HIDDEN_DIM,
+        len(words_to_ix),
+        len(tags_to_ix),
+        WORD_PAD_IX,
+        DROPOUT_RATE,
+    )
+    loss_function = nn.NLLLoss(ignore_index=TAG_PAD_IX)
+    optimizer = optim.SGD(model.parameters(), lr=0.1)
+
+    for _ in range(EPOCHS):
+        for j in range(len(sentences_data)):
+            # Step 1. Remember that Pytorch accumulates gradients.
+            # We need to clear them out before each instance
+            optimizer.zero_grad()
+
+            # Step 2. Split training data into minibatches
+            # Step 3. Run our forward pass.
+            tag_scores = model(sentences_data[j])
+            tag_scores = tag_scores.view(-1, tag_scores.shape[-1])
+            targets = tags_data[j].reshape(-1)
+
+            # Step 4. Compute the loss, gradients, and update the parameters by
+            #  calling optimizer.step()
+            loss = loss_function(tag_scores, targets)
+            loss.backward()
+            optimizer.step()
+
+    return model
+
+
+def parse(train_file):
+    with open(train_file, mode="r") as train_file_handler:
+        training_data = []
+        for line in train_file_handler.read().split("\n"):
+            tokens = line.split()
+            sentence = ["/".join(token.split("/")[:-1]).lower() for token in tokens]
+            tags = [token.split("/")[-1] for token in tokens]
+            training_data.append((sentence, tags))
+        training_data = training_data[:-1]
+    return training_data
+
+
+def train_model(train_file, model_file):
+    training_data = parse(train_file)
+    words_to_ix, tags_to_ix = to_ix(training_data)
+    sentences_data, tags_data = create_batches(training_data, words_to_ix, tags_to_ix)
+    model = perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix)
+    torch.save(
+        {
+            "model": model.state_dict(),
+            "hyperparameters": [
+                EMBEDDING_DIM,
+                HIDDEN_DIM,
+                BATCH_SIZE,
+                WORD_PAD_IX,
+                DROPOUT_RATE,
+                words_to_ix,
+                tags_to_ix,
+            ],
+        },
+        model_file,
+    )
+
+
+if __name__ == "__main__":
+    # make no changes here
+    train_file = sys.argv[1]
+    model_file = sys.argv[2]
+    start_time = datetime.datetime.now()
+    train_model(train_file, model_file)
+    end_time = datetime.datetime.now()
+    print("Time:", end_time - start_time)
