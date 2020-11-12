@@ -91,7 +91,7 @@ def prepare_sequence(seq, to_ix, pad_ix, pad_length):
 def form_batch(data, size):
     new_data = []
     for i in range(0, len(data), size):
-        new_data.append(data[i : i + size])
+        new_data.append(data[i: i + size])
     return new_data
 
 
@@ -112,8 +112,8 @@ def create_batches(training_data, words_to_ix, tags_to_ix):
             )
             sentence_batch.append(numericalized_sentences)
             tag_batch.append(numericalized_tags)
-        sentence_batch = torch.tensor(sentence_batch, device=DEVICE)
-        tag_batch = torch.tensor(tag_batch, device=DEVICE)
+        sentence_batch = torch.LongTensor(sentence_batch)
+        tag_batch = torch.LongTensor(tag_batch)
         sentences_data.append(sentence_batch)
         tags_data.append(tag_batch)
     return sentences_data, tags_data
