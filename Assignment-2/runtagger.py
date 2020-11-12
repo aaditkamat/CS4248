@@ -4,11 +4,6 @@ import sys
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.nn._functions import padding
-
-from buildtagger import BATCH_SIZE, WORD_PAD_IX, perform_training
 
 torch.manual_seed(1)
 torch.cuda.manual_seed(1)
@@ -21,15 +16,6 @@ def get_ix(seq, to_ix, start_index):
     for token in seq:
         if token not in to_ix:
             to_ix[token] = len(to_ix) + start_index
-
-
-def to_ix(test_data):
-    words_to_ix = {}
-    for sentence in test_data:
-        get_ix(sentence, words_to_ix, 2)
-    words_to_ix["-PAD-"] = 0
-    words_to_ix["-OOV-"] = 1
-    return words_to_ix
 
 
 class BiLSTMTagger(nn.Module):
@@ -63,15 +49,14 @@ class BiLSTMTagger(nn.Module):
         # The linear layer that maps from hidden state space to tag space
         self.hidden2tag = nn.Linear(hidden_dim * 2, tagset_size)
 
-    def forward(self, sentence_batch):
-        embeds = self.word_embeddings(sentence_batch)
+        self.dropout = nn.Dropout(dropout_rate)
 
-        lstm_out, _ = self.lstm(embeds)
-        lstm_dropout = F.dropout(lstm_out, self.dropout_rate)
+    def forward(self, sentence):
+        embeds = self.dropout(self.word_embeddings(sentence))
 
-        tag_space = F.dropout(self.hidden2tag(lstm_dropout), self.dropout_rate)
+        lstm_out, _ = self.lstm(embeds.view(len(sentence), 1, -1))
 
-        tag_scores = F.log_softmax(tag_space, dim=1)
+        tag_scores = self.hidden2tag(self.dropout(lstm_out.view(len(sentence), -1)))
 
         return tag_scores
 
@@ -94,40 +79,14 @@ def get_model_parameters(model_file):
         len(tags_to_ix),
         WORD_PAD_IX,
         DROPOUT_RATE,
-    )
+    ).to(DEVICE)
     model.load_state_dict(meta_data["model"])
-    return model, tags_to_ix, WORD_PAD_IX, BATCH_SIZE
+    return model, words_to_ix, tags_to_ix, WORD_PAD_IX, BATCH_SIZE
 
 
-def prepare_sequence(seq, to_ix, pad_ix, pad_length):
-    idxs = [to_ix[w] for w in seq]
-    idxs.extend([pad_ix for _ in range(pad_length - len(idxs))])
-    return idxs
-
-
-def form_batch(data, size):
-    new_data = []
-    for i in range(0, len(data), size):
-        new_data.append(data[i : i + size])
-    return new_data
-
-
-def create_batches(test_data, words_to_ix, padding_ix, batch_size):
-    batched_data = form_batch(test_data, batch_size)
-
-    sentences_data = []
-    for batch in batched_data:
-        sentence_batch = []
-        max_sentences_length = max([len(sentences) for sentences in batch])
-        for sentences in batch:
-            numericalized_sentences = prepare_sequence(
-                sentences, words_to_ix, padding_ix, max_sentences_length
-            )
-            sentence_batch.append(numericalized_sentences)
-            sentence_batch = torch.tensor(sentence_batch, device=DEVICE)
-            sentences_data.append(sentence_batch, device=DEVICE)
-
-    return sentences_data
+def prepare_sequence(seq, to_ix, pad_ix):
+    idxs = [to_ix[w] if w in to_ix else pad_ix for w in seq]
+    return torch.LongTensor(idxs).to(DEVICE)
 
 
 def get_tag(tags_to_ix, curr_idx):
@@ -139,33 +98,35 @@ def generate_tags(tag_scores, tags_to_ix):
     return [get_tag(tags_to_ix, idx) for idx in idxs]
 
 
-def perform_tagging(
-    out_file, test_data, model, words_to_ix, tags_to_ix, sentences_data
-):
+def perform_tagging(out_file, test_data, model, word_pad_ix, words_to_ix, tags_to_ix):
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
     with open(out_file, "w") as output_file_handler:
-        all_tags = []
-        for i in range(len(sentences_data)):
-            tag_scores = model(sentences_data[i])
+        for i in range(len(test_data)):
+            inputs = prepare_sequence(test_data[i], words_to_ix, word_pad_ix)
+            tag_scores = model(inputs)
             tag_scores = tag_scores.view(-1, tag_scores.shape[-1])
 
             tags = generate_tags(tag_scores, tags_to_ix)
-            all_tags.extend(tags)
-
-        for i in range(len(test_data)):
+            assert len(test_data[i]) == len(tags)
             for j in range(len(test_data[i])):
                 output_file_handler.write(
                     "{}/{} ".format(
-                        test_data[i][j], all_tags[i * len(test_data[0]) + j]
+                        test_data[i][j], tags[j]
                     )
                 )
             output_file_handler.write("\n")
+    end.record()
+    torch.cuda.synchronize()
+    print(start.elapsed_time(end))
 
 
 def parse(test_file):
     with open(test_file, mode="r") as test_file_handler:
         test_data = []
         for line in test_file_handler.read().split("\n"):
-            sentence = line.lower().split()
+            sentence = line.split()
             test_data.append(sentence)
         test_data = test_data[:-1]
     return test_data
@@ -173,10 +134,8 @@ def parse(test_file):
 
 def tag_sentence(test_file, model_file, out_file):
     test_data = parse(test_file)
-    model, tags_to_ix, WORD_PAD_IX, BATCH_SIZE = get_model_parameters(model_file)
-    words_to_ix = to_ix(test_data)
-    sentences_data = create_batches(test_data, words_to_ix, WORD_PAD_IX, BATCH_SIZE)
-    perform_tagging(out_file, test_data, model, words_to_ix, tags_to_ix, sentences_data)
+    model, words_to_ix, tags_to_ix, word_pad_ix, batch_size = get_model_parameters(model_file)
+    perform_tagging(out_file, test_data, model, word_pad_ix, words_to_ix, tags_to_ix)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
 import datetime
 import random
 import sys
+import time
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 
 torch.manual_seed(1)
@@ -12,13 +12,13 @@ torch.cuda.manual_seed(1)
 random.seed(1)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-EPOCHS = 5
+EPOCHS = 10
 WORD_PAD_IX = 1
 TAG_PAD_IX = 0
 EMBEDDING_DIM = 100
 HIDDEN_DIM = 128
 DROPOUT_RATE = 0.25
-BATCH_SIZE = 32
+BATCH_SIZE = 128
 
 
 class BiLSTMTagger(nn.Module):
@@ -52,15 +52,14 @@ class BiLSTMTagger(nn.Module):
         # The linear layer that maps from hidden state space to tag space
         self.hidden2tag = nn.Linear(hidden_dim * 2, tagset_size)
 
+        self.dropout = nn.Dropout(dropout_rate)
+
     def forward(self, sentence_batch):
-        embeds = self.word_embeddings(sentence_batch)
+        embeds = self.dropout(self.word_embeddings(sentence_batch))
 
         lstm_out, _ = self.lstm(embeds)
-        lstm_dropout = F.dropout(lstm_out, self.dropout_rate)
 
-        tag_space = F.dropout(self.hidden2tag(lstm_dropout), self.dropout_rate)
-
-        tag_scores = F.log_softmax(tag_space, dim=1)
+        tag_scores = self.hidden2tag(self.dropout(lstm_out))
 
         return tag_scores
 
@@ -83,7 +82,7 @@ def to_ix(training_data):
 
 
 def prepare_sequence(seq, to_ix, pad_ix, pad_length):
-    idxs = [to_ix[w] for w in seq]
+    idxs = [to_ix[w] if w in to_ix else 0 for w in seq]
     idxs.extend([pad_ix for _ in range(pad_length - len(idxs))])
     return idxs
 
@@ -112,12 +111,11 @@ def create_batches(training_data, words_to_ix, tags_to_ix):
             )
             sentence_batch.append(numericalized_sentences)
             tag_batch.append(numericalized_tags)
-        sentence_batch = torch.LongTensor(sentence_batch)
-        tag_batch = torch.LongTensor(tag_batch)
+        sentence_batch = torch.LongTensor(sentence_batch).t().to(DEVICE)
+        tag_batch = torch.LongTensor(tag_batch).t().to(DEVICE)
         sentences_data.append(sentence_batch)
         tags_data.append(tag_batch)
     return sentences_data, tags_data
-
 
 def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
     model = BiLSTMTagger(
@@ -127,10 +125,13 @@ def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
         len(tags_to_ix),
         WORD_PAD_IX,
         DROPOUT_RATE,
-    )
-    loss_function = nn.NLLLoss(ignore_index=TAG_PAD_IX)
+    ).to(DEVICE)
+    loss_function = nn.NLLLoss(ignore_index=TAG_PAD_IX).to(DEVICE)
     optimizer = optim.SGD(model.parameters(), lr=0.1)
-
+    print(model)
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
     for _ in range(EPOCHS):
         for j in range(len(sentences_data)):
             # Step 1. Remember that Pytorch accumulates gradients.
@@ -142,13 +143,15 @@ def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
             tag_scores = model(sentences_data[j])
             tag_scores = tag_scores.view(-1, tag_scores.shape[-1])
             targets = tags_data[j].reshape(-1)
-
+            #print(sentences_data[j].shape, tag_scores.shape, targets.shape
             # Step 4. Compute the loss, gradients, and update the parameters by
             #  calling optimizer.step()
             loss = loss_function(tag_scores, targets)
             loss.backward()
             optimizer.step()
-
+        end.record()
+        torch.cuda.synchronize()
+        # print(start.elapsed_time(end))
     return model
 
 
