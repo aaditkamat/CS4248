@@ -4,6 +4,7 @@ import sys
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 
 torch.manual_seed(1)
@@ -53,14 +54,18 @@ class BiLSTMTagger(nn.Module):
         # The linear layer that maps from hidden state space to tag space
         self.hidden2tag = nn.Linear(hidden_dim * 2, tagset_size)
 
-        self.dropout = nn.Dropout(dropout_rate)
+        self.dropout_rate = dropout_rate
 
     def forward(self, sentence_batch):
-        embeds = self.dropout(self.word_embeddings(sentence_batch))
+        embeds = F.dropout(
+            input=self.word_embeddings(sentence_batch), p=self.dropout_rate
+        )
 
         lstm_out, _ = self.lstm(embeds)
 
-        tag_scores = self.hidden2tag(self.dropout(lstm_out))
+        tag_scores = self.hidden2tag(
+            F.dropout(input=lstm_out, p=self.dropout_rate)
+        )
 
         return tag_scores
 
@@ -91,7 +96,7 @@ def prepare_sequence(seq, to_ix, pad_ix, pad_length):
 def form_batch(data, size):
     new_data = []
     for i in range(0, len(data), size):
-        new_data.append(data[i: i + size])
+        new_data.append(data[i : i + size])
     return new_data
 
 
@@ -128,6 +133,7 @@ def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
         WORD_PAD_IX,
         DROPOUT_RATE,
     ).to(DEVICE)
+
     loss_function = nn.NLLLoss(ignore_index=TAG_PAD_IX).to(DEVICE)
     optimizer = optim.SGD(model.parameters(), lr=0.1)
     start = torch.cuda.Event(enable_timing=True)
@@ -139,12 +145,12 @@ def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
             # We need to clear them out before each instance
             optimizer.zero_grad()
 
-            # Step 2. Split training data into minibatches
-            # Step 3. Run our forward pass.
+            # Step 2. Run our forward pass.
             tag_scores = model(sentences_data[j])
             tag_scores = tag_scores.view(-1, tag_scores.shape[-1])
             targets = tags_data[j].reshape(-1)
-            # Step 4. Compute the loss, gradients, and update the parameters by
+
+            # Step 3. Compute the loss, gradients, and update the parameters by
             #  calling optimizer.step()
             loss = loss_function(tag_scores, targets)
             loss.backward()
@@ -158,19 +164,26 @@ def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
 def parse(train_file):
     with open(train_file, mode="r") as train_file_handler:
         training_data = []
+
         for line in train_file_handler.read().split("\n"):
             tokens = line.split()
-            sentence = ["/".join(token.split("/")[:-1]).lower() for token in tokens]
+            sentence = [
+                "/".join(token.split("/")[:-1]).lower() for token in tokens
+            ]
             tags = [token.split("/")[-1] for token in tokens]
             training_data.append((sentence, tags))
+
         training_data = training_data[:-1]
+
     return training_data
 
 
 def train_model(train_file, model_file):
     training_data = parse(train_file)
     words_to_ix, tags_to_ix = to_ix(training_data)
-    sentences_data, tags_data = create_batches(training_data, words_to_ix, tags_to_ix)
+    sentences_data, tags_data = create_batches(
+        training_data, words_to_ix, tags_to_ix
+    )
     model = perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix)
     torch.save(
         {

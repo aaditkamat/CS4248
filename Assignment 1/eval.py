@@ -4,7 +4,6 @@
 import os
 import sys
 
-
 if __name__ == "__main__":
     out_file = sys.argv[1]
     reader = open(out_file)
@@ -17,16 +16,16 @@ if __name__ == "__main__":
     reader.close()
 
     if len(out_lines) != len(ref_lines):
-        print('Error: No. of lines in output file and reference file do not match.')
+        print("Error: No. of lines in output file and reference file do not match.")
         exit(0)
 
     total_tags = 0
     matched_tags = 0
     for i in range(0, len(out_lines)):
         cur_out_line = out_lines[i].strip()
-        cur_out_tags = cur_out_line.split(' ')
+        cur_out_tags = cur_out_line.split(" ")
         cur_ref_line = ref_lines[i].strip()
-        cur_ref_tags = cur_ref_line.split(' ')
+        cur_ref_tags = cur_ref_line.split(" ")
         total_tags += len(cur_ref_tags)
 
         for j in range(0, len(cur_ref_tags)):

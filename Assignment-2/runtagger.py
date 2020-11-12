@@ -4,6 +4,7 @@ import sys
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 torch.manual_seed(1)
 torch.cuda.manual_seed(1)
@@ -60,14 +61,20 @@ class BiLSTMTagger(nn.Module):
         # The linear layer that maps from hidden state space to tag space
         self.hidden2tag = nn.Linear(hidden_dim * 2, tagset_size)
 
-        self.dropout = nn.Dropout(dropout_rate)
+        self.dropout_rate = dropout_rate
 
     def forward(self, sentence):
-        embeds = self.dropout(self.word_embeddings(sentence))
+        embeds = F.dropout(
+            input=self.word_embeddings(sentence), p=self.dropout_rate
+        )
 
         lstm_out, _ = self.lstm(embeds.view(len(sentence), 1, -1))
 
-        tag_scores = self.hidden2tag(self.dropout(lstm_out.view(len(sentence), -1)))
+        tag_scores = self.hidden2tag(
+            F.dropout(
+                input=lstm_out.view(len(sentence), -1), p=self.dropout_rate
+            )
+        )
 
         return tag_scores
 
@@ -86,7 +93,9 @@ def generate_tags(tag_scores, tags_to_ix):
     return [get_tag(tags_to_ix, idx) for idx in idxs]
 
 
-def perform_tagging(out_file, test_data, model, word_pad_ix, words_to_ix, tags_to_ix):
+def perform_tagging(
+    out_file, test_data, model, word_pad_ix, words_to_ix, tags_to_ix
+):
     with open(out_file, "w") as output_file_handler:
         for i in range(len(test_data)):
             start = torch.cuda.Event(enable_timing=True)
@@ -101,9 +110,7 @@ def perform_tagging(out_file, test_data, model, word_pad_ix, words_to_ix, tags_t
             assert len(test_data[i]) == len(tags)
             for j in range(len(test_data[i])):
                 output_file_handler.write(
-                    "{}/{} ".format(
-                        test_data[i][j], tags[j]
-                    )
+                    "{}/{} ".format(test_data[i][j], tags[j])
                 )
             output_file_handler.write("\n")
 
@@ -148,7 +155,9 @@ def tag_sentence(test_file, model_file, out_file):
     model.load_state_dict(meta_data["model"])
     model.to(DEVICE)
 
-    perform_tagging(out_file, test_data, model, WORD_PAD_IX, words_to_ix, tags_to_ix)
+    perform_tagging(
+        out_file, test_data, model, WORD_PAD_IX, words_to_ix, tags_to_ix
+    )
 
 
 if __name__ == "__main__":
