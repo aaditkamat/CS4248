@@ -130,7 +130,6 @@ def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
     ).to(DEVICE)
     loss_function = nn.NLLLoss(ignore_index=TAG_PAD_IX).to(DEVICE)
     optimizer = optim.SGD(model.parameters(), lr=0.1)
-    print(model)
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
     start.record()
@@ -145,7 +144,6 @@ def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
             tag_scores = model(sentences_data[j])
             tag_scores = tag_scores.view(-1, tag_scores.shape[-1])
             targets = tags_data[j].reshape(-1)
-            #print(sentences_data[j].shape, tag_scores.shape, targets.shape
             # Step 4. Compute the loss, gradients, and update the parameters by
             #  calling optimizer.step()
             loss = loss_function(tag_scores, targets)

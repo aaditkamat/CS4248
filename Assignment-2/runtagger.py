@@ -20,6 +20,15 @@ def get_ix(seq, to_ix, start_index):
             to_ix[token] = len(to_ix) + start_index
 
 
+def to_ix(test_data, pad_ix):
+    words_to_ix = {}
+    for sentence in test_data:
+        get_ix(sentence, words_to_ix, pad_ix + 1)
+    words_to_ix["-UNK-"] = pad_ix - 1
+    words_to_ix["-PAD-"] = pad_ix
+    return words_to_ix
+
+
 class BiLSTMTagger(nn.Module):
     def __init__(
         self,
@@ -63,29 +72,6 @@ class BiLSTMTagger(nn.Module):
         return tag_scores
 
 
-def get_model_parameters(model_file):
-    meta_data = torch.load(model_file)
-    (
-        EMBEDDING_DIM,
-        HIDDEN_DIM,
-        BATCH_SIZE,
-        WORD_PAD_IX,
-        DROPOUT_RATE,
-        words_to_ix,
-        tags_to_ix,
-    ) = meta_data["hyperparameters"]
-    model = BiLSTMTagger(
-        EMBEDDING_DIM,
-        HIDDEN_DIM,
-        len(words_to_ix),
-        len(tags_to_ix),
-        WORD_PAD_IX,
-        DROPOUT_RATE,
-    ).to(DEVICE)
-    model.load_state_dict(meta_data["model"])
-    return model, words_to_ix, tags_to_ix, WORD_PAD_IX, BATCH_SIZE
-
-
 def prepare_sequence(seq, to_ix, pad_ix):
     idxs = [to_ix[w] if w in to_ix else pad_ix for w in seq]
     return torch.LongTensor(idxs).to(DEVICE)
@@ -101,11 +87,12 @@ def generate_tags(tag_scores, tags_to_ix):
 
 
 def perform_tagging(out_file, test_data, model, word_pad_ix, words_to_ix, tags_to_ix):
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-    start.record()
     with open(out_file, "w") as output_file_handler:
         for i in range(len(test_data)):
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+
             inputs = prepare_sequence(test_data[i], words_to_ix, word_pad_ix)
             tag_scores = model(inputs)
             tag_scores = tag_scores.view(-1, tag_scores.shape[-1])
@@ -119,9 +106,10 @@ def perform_tagging(out_file, test_data, model, word_pad_ix, words_to_ix, tags_t
                     )
                 )
             output_file_handler.write("\n")
-    end.record()
-    torch.cuda.synchronize()
-    print(start.elapsed_time(end))
+
+            end.record()
+            torch.cuda.synchronize()
+            print(start.elapsed_time(end))
 
 
 def parse(test_file):
@@ -136,8 +124,31 @@ def parse(test_file):
 
 def tag_sentence(test_file, model_file, out_file):
     test_data = parse(test_file)
-    model, words_to_ix, tags_to_ix, word_pad_ix, batch_size = get_model_parameters(model_file)
-    perform_tagging(out_file, test_data, model, word_pad_ix, words_to_ix, tags_to_ix)
+
+    meta_data = torch.load(model_file)
+    (
+        EMBEDDING_DIM,
+        HIDDEN_DIM,
+        BATCH_SIZE,
+        WORD_PAD_IX,
+        DROPOUT_RATE,
+        words_to_ix,
+        tags_to_ix,
+    ) = meta_data["hyperparameters"]
+
+    model = BiLSTMTagger(
+        EMBEDDING_DIM,
+        HIDDEN_DIM,
+        len(words_to_ix),
+        len(tags_to_ix),
+        WORD_PAD_IX,
+        DROPOUT_RATE,
+    )
+
+    model.load_state_dict(meta_data["model"])
+    model.to(DEVICE)
+
+    perform_tagging(out_file, test_data, model, WORD_PAD_IX, words_to_ix, tags_to_ix)
 
 
 if __name__ == "__main__":
