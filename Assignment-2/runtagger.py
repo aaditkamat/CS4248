@@ -98,10 +98,6 @@ def perform_tagging(
 ):
     with open(out_file, "w") as output_file_handler:
         for i in range(len(test_data)):
-            start = torch.cuda.Event(enable_timing=True)
-            end = torch.cuda.Event(enable_timing=True)
-            start.record()
-
             inputs = prepare_sequence(test_data[i], words_to_ix, word_pad_ix)
             tag_scores = model(inputs)
             tag_scores = tag_scores.view(-1, tag_scores.shape[-1])
@@ -113,10 +109,6 @@ def perform_tagging(
                     "{}/{} ".format(test_data[i][j], tags[j])
                 )
             output_file_handler.write("\n")
-
-            end.record()
-            torch.cuda.synchronize()
-            print(start.elapsed_time(end))
 
 
 def parse(test_file):

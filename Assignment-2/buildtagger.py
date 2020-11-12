@@ -136,9 +136,7 @@ def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
 
     loss_function = nn.NLLLoss(ignore_index=TAG_PAD_IX).to(DEVICE)
     optimizer = optim.SGD(model.parameters(), lr=0.1)
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-    start.record()
+
     for _ in range(EPOCHS):
         for j in range(len(sentences_data)):
             # Step 1. Remember that Pytorch accumulates gradients.
@@ -155,9 +153,7 @@ def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
             loss = loss_function(tag_scores, targets)
             loss.backward()
             optimizer.step()
-        end.record()
-        torch.cuda.synchronize()
-        # print(start.elapsed_time(end))
+
     return model
 
 
