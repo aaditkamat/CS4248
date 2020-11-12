@@ -8,6 +8,8 @@ import torch.nn as nn
 torch.manual_seed(1)
 torch.cuda.manual_seed(1)
 random.seed(1)
+torch.backends.cudnn.deterministic = True
+
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

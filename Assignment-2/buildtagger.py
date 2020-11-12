@@ -1,7 +1,6 @@
 import datetime
 import random
 import sys
-import time
 
 import torch
 import torch.nn as nn
@@ -10,6 +9,8 @@ import torch.optim as optim
 torch.manual_seed(1)
 torch.cuda.manual_seed(1)
 random.seed(1)
+torch.backends.cudnn.deterministic = True
+
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EPOCHS = 10
@@ -116,6 +117,7 @@ def create_batches(training_data, words_to_ix, tags_to_ix):
         sentences_data.append(sentence_batch)
         tags_data.append(tag_batch)
     return sentences_data, tags_data
+
 
 def perform_training(sentences_data, tags_data, words_to_ix, tags_to_ix):
     model = BiLSTMTagger(
